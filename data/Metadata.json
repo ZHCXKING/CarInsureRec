@@ -1,0 +1,40 @@
+{
+    "tables": {
+        "table": {
+            "columns": {
+                "Age": {
+                    "sdtype": "numerical",
+                    "computer_representation": "Int64"
+                },
+                "DrivingExp": {
+                    "sdtype": "numerical",
+                    "computer_representation": "Int64"
+                },
+                "Occupation": {
+                    "sdtype": "categorical"
+                },
+                "NCD": {
+                    "sdtype": "categorical"
+                },
+                "Date": {
+                    "sdtype": "datetime"
+                },
+                "Make": {
+                    "sdtype": "categorical"
+                },
+                "Car.year": {
+                    "sdtype": "numerical",
+                    "computer_representation": "Int64"
+                },
+                "Car.price": {
+                    "sdtype": "numerical"
+                },
+                "InsCov": {
+                    "sdtype": "categorical"
+                }
+            }
+        }
+    },
+    "relationships": [],
+    "METADATA_SPEC_VERSION": "V1"
+}
