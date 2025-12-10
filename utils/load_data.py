@@ -1,9 +1,13 @@
 #%%
 import pandas as pd
 from sdv.utils import load_synthesizer
-from utils.fillna import iterative, split_iterative
+from utils.fillna import filling
 #%%
-def load_data(data_type: str='synthetic', amount: int|None=None, split_num: int|None=None, fillna: bool=False):
+def load_data(data_type: str='synthetic',
+              amount: int|None=None,
+              split_num: int|None=None,
+              fillna: bool=False,
+              fillna_method: str='iterative_NB'):
     if data_type == 'original':
         data = pd.read_excel('../data/All Data.xlsx', sheet_name='coding', nrows=amount)
     elif data_type == 'test':
@@ -19,7 +23,7 @@ def load_data(data_type: str='synthetic', amount: int|None=None, split_num: int|
         if split_num > data.shape[0]:
             raise ValueError('split_num must be smaller than data amount.)')
         if fillna:
-            data_train, data_test = split_iterative(data, split_num)
+            data_train, data_test = filling(data, method=fillna_method, split_num=split_num, )
             return data_train, data_test
         else:
             data_train = data[:split_num].reset_index(drop=True)
@@ -27,7 +31,7 @@ def load_data(data_type: str='synthetic', amount: int|None=None, split_num: int|
             return data_train, data_test
     else:
         if fillna:
-            data = iterative(data, method='NB')
+            data = filling(data, method=fillna_method)
             return data
         else:
             return data

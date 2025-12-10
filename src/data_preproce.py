@@ -1,7 +1,7 @@
 #%%
 import pandas as pd
 import numpy as np
-from utils.fillna import iterative
+from utils.fillna import filling
 from sdv.metadata import Metadata
 from sdv.single_table import CTGANSynthesizer
 #%%
@@ -65,7 +65,7 @@ with pd.ExcelWriter('../data/All Data.xlsx', 'openpyxl', mode='a', if_sheet_exis
     df.to_excel(writer, sheet_name='coding', index=False)
 #%%
 df_imput = df.copy()
-df_imput = iterative(df_imput, method='NB')
+df_imput = filling(df_imput)
 with pd.ExcelWriter('../data/All Data.xlsx', 'openpyxl', mode='a', if_sheet_exists='replace') as writer:
     df_imput.to_excel(writer, sheet_name='filling', index=False)
 #%%
