@@ -38,23 +38,25 @@ def _numeric_to_date(df: pd.DataFrame):
     df.sort_values(by='Date', inplace=True, ignore_index=True)
     return df
 #%%
-def filling(df: pd.DataFrame, method: str= 'iterative_NB', split_num: int|None=None):
+def filling(df: pd.DataFrame, method: str= 'iterative_NB'):
     df = _date_to_numeric(df)
     cols = df.columns
     imputer = _select_interpolation(method)
-    if split_num is not None:
-        data_train = df[:split_num].reset_index(drop=True)
-        data_train = pd.DataFrame(imputer.fit_transform(data_train), columns=cols)
-        data_train = _round(data_train)
-        data_train = _numeric_to_date(data_train)
-        data_test = df[split_num:].reset_index(drop=True)
-        data_test = pd.DataFrame(imputer.transform(data_test), columns=cols)
-        data_test = _round(data_test)
-        data_test = _numeric_to_date(data_test)
-        return data_train, data_test
-    else:
-        df = imputer.fit_transform(df)
-        df = pd.DataFrame(df, columns=cols)
-        df = _round(df)
-        df = _numeric_to_date(df)
-        return df
+    df = imputer.fit_transform(df)
+    df = pd.DataFrame(df, columns=cols)
+    df = _round(df)
+    df = _numeric_to_date(df)
+    return df
+#%%
+def split_filling(train_data: pd.DataFrame, test_data: pd.DataFrame, method: str= 'iterative_NB'):
+    train_data = _date_to_numeric(train_data)
+    test_data = _date_to_numeric(test_data)
+    cols = train_data.columns
+    imputer = _select_interpolation(method)
+    train_data = pd.DataFrame(imputer.fit_transform(train_data), columns=cols)
+    test_data = pd.DataFrame(imputer.transform(test_data), columns=cols)
+    train_data = _round(train_data)
+    test_data = _round(test_data)
+    train_data = _numeric_to_date(train_data)
+    test_data = _numeric_to_date(test_data)
+    return train_data, test_data

@@ -1,4 +1,5 @@
+torch~=2.9.1+cu126
 pandas~=2.3.3
-numpy~=1.26.4
+numpy~=2.3.5
 sdv~=1.30.0
 scikit-learn~=1.7.2

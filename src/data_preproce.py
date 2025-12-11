@@ -1,15 +1,17 @@
 #%%
 import pandas as pd
 import numpy as np
-from utils.fillna import filling
+from pathlib import Path
+from src.utils.fillna import filling
 from sdv.metadata import Metadata
 from sdv.single_table import CTGANSynthesizer
 #%%
+root = Path(__file__).parents[1]
 Data1_feature = ['Age', 'Driving exp', 'Occupation', 'Coverage', 'Insurer', 'NCD', 'Settlement Date', 'Make', 'Year of manufacturer', 'Sum of insured']
 Data2_feature = ['Age', 'DE', 'Occupation', 'Coverage', 'Insur Co', 'NCD', 'Settlement Date', 'Make', 'Man. Year', 'Sum Insured']
 feature = ['Age', 'DrivingExp', 'Occupation', 'Coverage', 'Insurer', 'NCD', 'Date', 'Make', 'Car.year', 'Car.price']
-df1 = pd.read_excel('../data/Data1.xlsx', usecols=Data1_feature).rename(columns=dict(zip(Data1_feature, feature)))
-df2 = pd.read_excel('../data/Data2.xlsx', usecols=Data2_feature).rename(columns=dict(zip(Data2_feature, feature)))
+df1 = pd.read_excel(root/'data'/'Data1.xlsx', usecols=Data1_feature).rename(columns=dict(zip(Data1_feature, feature)))
+df2 = pd.read_excel(root/'data'/'Data2.xlsx', usecols=Data2_feature).rename(columns=dict(zip(Data2_feature, feature)))
 df = pd.concat([df1, df2], ignore_index=True)
 df.dropna(subset=['Insurer'], inplace=True, ignore_index=True)
 df.drop_duplicates(inplace=True, ignore_index=True)
@@ -42,6 +44,9 @@ df['InsCov'] = np.where(
     np.nan,
     df['Insurer'].fillna('Missing').astype(str) + '|' + df['Coverage'].fillna('Missing').astype(str)
 )
+value_counts = df['InsCov'].value_counts()
+valid_categories = value_counts[value_counts >= 2].index
+df = df[df['InsCov'].isin(valid_categories)].reset_index(drop=True)
 df['InsCov'], InsCov_index = pd.factorize(df['InsCov'], sort=True)
 df = df.drop(columns=['Insurer', 'Coverage'])
 df['NCD'] = pd.to_numeric(df['NCD'], errors='coerce')
@@ -61,16 +66,16 @@ df['Car.year'] = pd.to_numeric(df['Car.year'], errors='coerce')
 df['Car.year'] = df['Date'].dt.year - df['Car.year']
 df.loc[df['Car.year']<0, 'Car.year'] = np.nan
 df.sort_values(by='Date', inplace=True, ignore_index=True)
-with pd.ExcelWriter('../data/All Data.xlsx', 'openpyxl', mode='a', if_sheet_exists='replace') as writer:
+with pd.ExcelWriter(root/'data'/'All Data.xlsx', 'openpyxl', mode='a', if_sheet_exists='replace') as writer:
     df.to_excel(writer, sheet_name='coding', index=False)
 #%%
 df_imput = df.copy()
 df_imput = filling(df_imput)
-with pd.ExcelWriter('../data/All Data.xlsx', 'openpyxl', mode='a', if_sheet_exists='replace') as writer:
+with pd.ExcelWriter(root/'data'/'All Data.xlsx', 'openpyxl', mode='a', if_sheet_exists='replace') as writer:
     df_imput.to_excel(writer, sheet_name='filling', index=False)
 #%%
 df_sdv = df.copy()
-metadata = Metadata.load_from_json(filepath='../data/Metadata.json')
+metadata = Metadata.load_from_json(filepath=root/'data'/'Metadata.json')
 synthesizer = CTGANSynthesizer(metadata, verbose=True)
 synthesizer.fit(df_sdv)
-synthesizer.save(filepath='../data/synthesizer.pkl')
+synthesizer.save(filepath=root/'data'/'synthesizer.pkl')
