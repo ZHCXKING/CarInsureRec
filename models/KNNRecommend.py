@@ -1,16 +1,16 @@
 #%%
 import pandas as pd
 from models import BaseRecommender
-from sklearn.linear_model import LogisticRegression
-#https://scikit-learn.org.cn/view/378.html
+from sklearn.neighbors import KNeighborsClassifier
+#https://scikit-learn.org.cn/view/695.html
 #%%
-class LRRecommend(BaseRecommender):
-    def __init__(self, user_name:list, item_name:str, date_name:str|None=None, seed=42, **kwargs):
+class KNNRecommend(BaseRecommender):
+    def __init__(self, user_name:list, item_name:str, date_name:str|None=None, seed:int=42, **kwargs):
         if (user_name is None) or (item_name is None):
             raise ValueError('user_name and item_name are required')
-        super().__init__('LR', user_name, item_name, date_name, seed)
+        super().__init__('KNN', user_name, item_name, date_name, seed)
         self.kwargs = kwargs
-        self.model = LogisticRegression(random_state=self.seed, **self.kwargs)
+        self.model = KNeighborsClassifier(**kwargs)
     #%%
     def fit(self, train_data: pd.DataFrame):
         X = train_data[self.user_name]
@@ -19,12 +19,12 @@ class LRRecommend(BaseRecommender):
         self.model.fit(X, y)
         self.is_trained = True
     #%%
-    def recommend(self, test_data: pd.DataFrame, k:int=5):
+    def recommend(self, test_data:pd.DataFrame, k:int=5):
         if not self.is_trained:
             raise ValueError('model is not trained')
         X = test_data[self.user_name]
         y = self.model.predict_proba(X)
         result = pd.DataFrame(y, index=test_data.index, columns=self.unique_item)
         topk_item = result.apply(lambda row: row.nlargest(k).index.tolist(), axis=1)
-        topk_item = pd.DataFrame(topk_item.tolist(), columns=[f'top{i+1}' for i in range(k)])
+        topk_item = pd.DataFrame(topk_item.tolist(), columns=[f'top{i + 1}' for i in range(k)])
         return topk_item

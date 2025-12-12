@@ -6,11 +6,11 @@ from sklearn.impute import IterativeImputer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import BayesianRidge
 #%%
-def _select_interpolation(method: str='iterative_NB'):
+def _select_interpolation(method:str='iterative_NB', seed:int=42):
     if method == 'iterative_RF':
-        imputer = IterativeImputer(estimator=RandomForestRegressor(), max_iter=50, verbose=1)
+        imputer = IterativeImputer(estimator=RandomForestRegressor(), max_iter=50, verbose=1, random_state=seed)
     elif method == 'iterative_NB':
-        imputer = IterativeImputer(estimator=BayesianRidge(), max_iter=50, verbose=1)
+        imputer = IterativeImputer(estimator=BayesianRidge(), max_iter=50, verbose=1, random_state=seed)
     else:
         raise ValueError('method must be iterative_RF or iterative_NB')
     return imputer
@@ -32,27 +32,27 @@ def _date_to_numeric(df:pd.DataFrame):
     df.drop('Date', axis=1, inplace=True)
     return df
 #%%
-def _numeric_to_date(df: pd.DataFrame):
+def _numeric_to_date(df:pd.DataFrame):
     df['Date'] = pd.to_datetime(df[['year', 'month', 'day']])
     df.drop(['year', 'month', 'day'], axis=1, inplace=True)
     df.sort_values(by='Date', inplace=True, ignore_index=True)
     return df
 #%%
-def filling(df: pd.DataFrame, method: str= 'iterative_NB'):
+def filling(df:pd.DataFrame, method:str='iterative_NB', seed:int=42):
     df = _date_to_numeric(df)
     cols = df.columns
-    imputer = _select_interpolation(method)
+    imputer = _select_interpolation(method, seed)
     df = imputer.fit_transform(df)
     df = pd.DataFrame(df, columns=cols)
     df = _round(df)
     df = _numeric_to_date(df)
     return df
 #%%
-def split_filling(train_data: pd.DataFrame, test_data: pd.DataFrame, method: str= 'iterative_NB'):
+def split_filling(train_data:pd.DataFrame, test_data:pd.DataFrame, method:str='iterative_NB', seed:int=42):
     train_data = _date_to_numeric(train_data)
     test_data = _date_to_numeric(test_data)
     cols = train_data.columns
-    imputer = _select_interpolation(method)
+    imputer = _select_interpolation(method, seed)
     train_data = pd.DataFrame(imputer.fit_transform(train_data), columns=cols)
     test_data = pd.DataFrame(imputer.transform(test_data), columns=cols)
     train_data = _round(train_data)

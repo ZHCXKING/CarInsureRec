@@ -1,6 +1,6 @@
 from src.utils import load
 from models import LRRecommend, BNRecommend, KNNRecommend
-train, test = load('synthetic', amount=10000, split_num=5000, fillna=False, seed=42)
+train, test = load('synthetic', amount=10000, split_num=5000, fillna=True, seed=42)
 user_name = ['Age', 'DrivingExp', 'Occupation', 'NCD', 'Make', 'Car.year', 'Car.price']
 item_name = 'InsCov'
 date_name = 'Date'
