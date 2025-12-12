@@ -9,6 +9,8 @@ class BaseRecommender(ABC):
         self.user_name = user_name
         self.item_name = item_name
         self.date_name = date_name
+        self.sparse_feature = None
+        self.dense_feature = None
         self.seed = seed
         self.unique_item = None
         self.is_trained = False
