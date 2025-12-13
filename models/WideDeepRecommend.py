@@ -4,11 +4,11 @@ import torch
 from .base import BaseRecommender
 from torch.utils.data import DataLoader, TensorDataset
 from torch import nn, optim
-from rec4torch.models import DeepFM
+from rec4torch.models import WideDeep
 from rec4torch.inputs import SparseFeat, DenseFeat, build_input_array
 #https://github.com/Tongjilibo/rec4torch
 # %%
-class DeepFMRecommend(BaseRecommender):
+class WideDeepRecommend(BaseRecommender):
     def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
                  sparse_features: list | None = None, dense_features: list | None = None, standard_bool: bool = False,
                  seed: int = 42, **kwargs):
@@ -68,7 +68,7 @@ class DeepFMRecommend(BaseRecommender):
         y = torch.tensor(y, dtype=torch.int64, device=self.device)
         train_dataset = TensorDataset(X, y)
         train_loader = DataLoader(train_dataset, batch_size=self.kwargs['batch_size'], shuffle=True)
-        self.model = DeepFM(self.linear_feature_columns, self.dnn_feature_columns, out_dim=self.out_dim)
+        self.model = WideDeep(self.linear_feature_columns, self.dnn_feature_columns, out_dim=self.out_dim)
         self.model.to(self.device)
         self.model.compile(
             loss = nn.CrossEntropyLoss(),

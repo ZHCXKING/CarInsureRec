@@ -35,7 +35,6 @@ class LRRecommend(BaseRecommender):
         y = train_data[self.item_name]
         self.model.fit(X, y)
         self.unique_item = self.model.classes_
-        print(self.unique_item)
         self.is_trained = True
 
     # %%

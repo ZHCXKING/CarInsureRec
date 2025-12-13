@@ -31,7 +31,6 @@ class BNRecommend(BaseRecommender):
         if self.standard_bool:
             X = self._Standardize(X, fit_bool=True)
         y = train_data[self.item_name]
-        #self.unique_item = y.unique().tolist()
         self.model.fit(X, y)
         self.unique_item = self.model.bn.variable(self.model.target).labels()
         self.is_trained = True

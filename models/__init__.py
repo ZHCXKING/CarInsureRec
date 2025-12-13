@@ -4,6 +4,7 @@ from .BNRecommend import BNRecommend
 from .KNNRecommend import KNNRecommend
 from .LRRecommend import LRRecommend
 from .DeepFMRecommend import DeepFMRecommend
+from .WideDeepRecommend import WideDeepRecommend
 
 # %%
 __all__ = [
@@ -11,5 +12,6 @@ __all__ = [
     'LRRecommend',
     'BNRecommend',
     'KNNRecommend',
-    'DeepFMRecommend'
+    'DeepFMRecommend',
+    'WideDeepRecommend'
 ]
