@@ -49,7 +49,7 @@ class LRRecommend(BaseRecommender):
 if __name__ == '__main__':
     from src.utils import load
     from models import LRRecommend
-    train, test = load('test', amount=1000, split_num=500)
+    train, test = load('test', amount=10000, split_num=5000)
     user_name = ['Age', 'DrivingExp', 'Occupation', 'NCD', 'Make', 'Car.year', 'Car.price']
     item_name = 'InsCov'
     date_name = 'Date'
