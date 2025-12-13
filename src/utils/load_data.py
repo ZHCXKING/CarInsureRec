@@ -1,32 +1,36 @@
-#%%
+# %%
 import pandas as pd
 from sdv.utils import load_synthesizer
 from src.utils.fillna import filling, split_filling
 from sklearn.model_selection import train_test_split
 from pathlib import Path
-#%%
-def _filter_data(df:pd.DataFrame, min_count=2):
+
+
+# %%
+def _filter_data(df: pd.DataFrame, min_count=2):
     value_counts = df['InsCov'].value_counts()
     valid_categories = value_counts[value_counts > min_count].index
     df = df[df['InsCov'].isin(valid_categories)].reset_index(drop=True)
     df['InsCov'], _ = pd.factorize(df['InsCov'], sort=True)
     return df
-#%%
-def load(data_type:str='test',
-         amount:int|None=None,
-         split_num:int|None=None,
-         fillna:bool=False,
-         fillna_method:str='iterative_NB',
-         seed:int=42):
+
+
+# %%
+def load(data_type: str = 'test',
+         amount: int | None = None,
+         split_num: int | None = None,
+         fillna: bool = False,
+         fillna_method: str = 'iterative_NB',
+         seed: int = 42):
     root = Path(__file__).parents[2]
     if data_type == 'original':
-        data = pd.read_excel(root/'data'/'All Data.xlsx', sheet_name='coding', nrows=amount)
+        data = pd.read_excel(root / 'data' / 'All Data.xlsx', sheet_name='coding', nrows=amount)
     elif data_type == 'test':
-        data = pd.read_excel(root/'data'/'All Data.xlsx', sheet_name='filling', nrows=amount)
+        data = pd.read_excel(root / 'data' / 'All Data.xlsx', sheet_name='filling', nrows=amount)
     elif data_type == 'synthetic':
         if amount is None:
             raise ValueError('When loading synthetic data, amount cannot be None.')
-        synthesizer = load_synthesizer(filepath=root/'data'/'synthesizer.pkl')
+        synthesizer = load_synthesizer(filepath=root / 'data' / 'synthesizer.pkl')
         data = synthesizer.sample(num_rows=amount)
     else:
         raise ValueError('data_type must be original, synthetic and test.')

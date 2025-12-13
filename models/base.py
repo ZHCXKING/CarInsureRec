@@ -1,12 +1,14 @@
-#%%
+# %%
 from abc import ABC, abstractmethod
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-#%%
+
+
+# %%
 class BaseRecommender(ABC):
-    def __init__(self, model_name:str, user_name:list, item_name:str, date_name:str|None,
-                 sparse_features:list|None, dense_features:list|None, standard_bool:bool,
-                 seed:int):
+    def __init__(self, model_name: str, user_name: list, item_name: str, date_name: str | None,
+                 sparse_features: list | None, dense_features: list | None, standard_bool: bool,
+                 seed: int):
         self.model_name = model_name
         self.model = None
         self.kwargs = dict()
@@ -19,16 +21,19 @@ class BaseRecommender(ABC):
         self.seed = seed
         self.unique_item = None
         self.is_trained = False
-    #%%
+
+    # %%
     @abstractmethod
-    def fit(self, train_data:pd.DataFrame):
+    def fit(self, train_data: pd.DataFrame):
         pass
-    #%%
+
+    # %%
     @abstractmethod
-    def recommend(self, test_data:pd.DataFrame, k:int):
+    def recommend(self, test_data: pd.DataFrame, k: int):
         pass
-    #%%
-    def _Standardize(self, data:pd.DataFrame, fit_bool:bool):
+
+    # %%
+    def _Standardize(self, data: pd.DataFrame, fit_bool: bool):
         if self.dense_feature is None:
             raise ValueError('dense_feature is None')
         if fit_bool:
