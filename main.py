@@ -18,7 +18,8 @@ epochs = 2
 out_dim = train['InsCov'].nunique()
 
 sparse_features = ['Occupation', 'NCD', 'Make']
-dense_features = ['Age', 'Car.year', 'Car.price', 'DrivingExp']
+#dense_features = ['Age', 'Car.year', 'Car.price', 'DrivingExp']
+dense_features = []
 
 mappings = {}
 vocabulary_sizes = {}

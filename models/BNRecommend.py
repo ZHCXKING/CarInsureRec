@@ -5,15 +5,28 @@ from pyagrum.skbn import BNClassifier
 #https://pyagrum.readthedocs.io/en/2.3.1/skbnClassifier.html#pyagrum.skbn.BNClassifier
 #%%
 class BNRecommend(BaseRecommender):
-    def __init__(self, user_name:list, item_name:str, date_name:str|None=None, seed:int=42, **kwargs):
+    def __init__(self, user_name:list, item_name:str, date_name:str|None=None,
+                 sparse_features:list|None=None, dense_features:list|None=None, standard_bool:bool=False,
+                 seed:int=42, **kwargs):
         if (user_name is None) or (item_name is None):
             raise ValueError('user_name and item_name are required')
-        super().__init__('BN', user_name, item_name, date_name, seed)
-        self.kwargs = kwargs
-        self.model = BNClassifier(**kwargs)
+        super().__init__('BN', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed)
+        default_params = {
+            'learningMethod': 'MIIC',
+            'scoringType': 'BIC',
+            'discretizationStrategy': 'quantile',
+            'discretizationNbBins': 5
+        }
+        model_params = ['learningMethod', 'scoringType', 'discretizationStrategy', 'discretizationNbBins']
+        self.kwargs.update(default_params)
+        self.kwargs.update(kwargs)
+        model_params = {key: self.kwargs[key] for key in model_params}
+        self.model = BNClassifier(**model_params)
     #%%
     def fit(self, train_data: pd.DataFrame):
         X = train_data[self.user_name]
+        if self.standard_bool:
+            X = self._Standardize(X, fit_bool=True)
         y = train_data[self.item_name]
         self.unique_item = y.unique().tolist()
         self.model.fit(X, y)
@@ -23,6 +36,8 @@ class BNRecommend(BaseRecommender):
         if not self.is_trained:
             raise ValueError('model is not trained')
         X = test_data[self.user_name]
+        if self.standard_bool:
+            X = self._Standardize(X, fit_bool=False)
         y = self.model.predict_proba(X)
         result = pd.DataFrame(y, index=test_data.index, columns=self.unique_item)
         topk_item = result.apply(lambda row: row.nlargest(k).index.tolist(), axis=1)
@@ -38,9 +53,9 @@ if __name__ == '__main__':
     date_name = 'Date'
     sparse_features = ['Occupation', 'NCD', 'Make']
     dense_features = ['Age', 'Car.year', 'Car.price', 'DrivingExp']
-    model = BNRecommend(user_name, item_name, date_name, seed=42)
+    model = BNRecommend(user_name, item_name, date_name, sparse_features, dense_features, standard_bool=True, seed=42)
     model.fit(train)
     y_prob = model.recommend(test, k=10)
-    # print(y_prob)
+    print(y_prob)
     # print(type(y_prob))
     # print(y_prob.max(), y_prob.min(), y_prob.nunique())

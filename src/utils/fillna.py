@@ -6,11 +6,11 @@ from sklearn.impute import IterativeImputer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import BayesianRidge
 #%%
-def _select_interpolation(method:str='iterative_NB', seed:int=42):
+def _select_interpolation(Max, Min, method:str='iterative_NB', seed:int=42):
     if method == 'iterative_RF':
-        imputer = IterativeImputer(estimator=RandomForestRegressor(), max_iter=50, verbose=1, random_state=seed)
+        imputer = IterativeImputer(estimator=RandomForestRegressor(), max_iter=50, max_value=Max, min_value=Min, random_state=seed)
     elif method == 'iterative_NB':
-        imputer = IterativeImputer(estimator=BayesianRidge(), max_iter=50, verbose=1, random_state=seed)
+        imputer = IterativeImputer(estimator=BayesianRidge(), max_iter=50, max_value=Max, min_value=Min, random_state=seed)
     else:
         raise ValueError('method must be iterative_RF or iterative_NB')
     return imputer
@@ -41,7 +41,8 @@ def _numeric_to_date(df:pd.DataFrame):
 def filling(df:pd.DataFrame, method:str='iterative_NB', seed:int=42):
     df = _date_to_numeric(df)
     cols = df.columns
-    imputer = _select_interpolation(method, seed)
+    Max, Min = df.max(), df.min()
+    imputer = _select_interpolation(Max, Min, method, seed)
     df = imputer.fit_transform(df)
     df = pd.DataFrame(df, columns=cols)
     df = _round(df)
@@ -52,7 +53,8 @@ def split_filling(train_data:pd.DataFrame, test_data:pd.DataFrame, method:str='i
     train_data = _date_to_numeric(train_data)
     test_data = _date_to_numeric(test_data)
     cols = train_data.columns
-    imputer = _select_interpolation(method, seed)
+    Max, Min = train_data.max(), train_data.min()
+    imputer = _select_interpolation(Max, Min, method, seed)
     train_data = pd.DataFrame(imputer.fit_transform(train_data), columns=cols)
     test_data = pd.DataFrame(imputer.transform(test_data), columns=cols)
     train_data = _round(train_data)

@@ -5,15 +5,27 @@ from sklearn.neighbors import KNeighborsClassifier
 #https://scikit-learn.org.cn/view/695.html
 #%%
 class KNNRecommend(BaseRecommender):
-    def __init__(self, user_name:list, item_name:str, date_name:str|None=None, seed:int=42, **kwargs):
+    def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
+                 sparse_features: list | None = None, dense_features: list | None = None, standard_bool: bool = False,
+                 seed: int = 42, **kwargs):
         if (user_name is None) or (item_name is None):
             raise ValueError('user_name and item_name are required')
-        super().__init__('KNN', user_name, item_name, date_name, seed)
-        self.kwargs = kwargs
-        self.model = KNeighborsClassifier(**kwargs)
+        super().__init__('KNN', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed)
+        default_params = {
+            'n_neighbors': 10,
+            'weights': 'distance',
+            'p': 2
+        }
+        model_params = ['n_neighbors', 'weights', 'p']
+        self.kwargs.update(default_params)
+        self.kwargs.update(kwargs)
+        model_params = {key: self.kwargs[key] for key in model_params}
+        self.model = KNeighborsClassifier(**model_params)
     #%%
     def fit(self, train_data: pd.DataFrame):
         X = train_data[self.user_name]
+        if self.standard_bool:
+            X = self._Standardize(X, fit_bool=True)
         y = train_data[self.item_name]
         self.unique_item = y.unique().tolist()
         self.model.fit(X, y)
@@ -23,6 +35,8 @@ class KNNRecommend(BaseRecommender):
         if not self.is_trained:
             raise ValueError('model is not trained')
         X = test_data[self.user_name]
+        if self.standard_bool:
+            X = self._Standardize(X, fit_bool=False)
         y = self.model.predict_proba(X)
         result = pd.DataFrame(y, index=test_data.index, columns=self.unique_item)
         topk_item = result.apply(lambda row: row.nlargest(k).index.tolist(), axis=1)
@@ -31,16 +45,16 @@ class KNNRecommend(BaseRecommender):
 #%%
 if __name__ == '__main__':
     from src.utils import load
-    from models import BNRecommend
+    from models import KNNRecommend
     train, test = load('test', amount=1000, split_num=500)
     user_name = ['Age', 'DrivingExp', 'Occupation', 'NCD', 'Make', 'Car.year', 'Car.price']
     item_name = 'InsCov'
     date_name = 'Date'
     sparse_features = ['Occupation', 'NCD', 'Make']
     dense_features = ['Age', 'Car.year', 'Car.price', 'DrivingExp']
-    model = BNRecommend(user_name, item_name, date_name, seed=42)
+    model = KNNRecommend(user_name, item_name, date_name, sparse_features, dense_features, standard_bool=True, seed=42)
     model.fit(train)
     y_prob = model.recommend(test, k=10)
-    # print(y_prob)
+    print(y_prob)
     # print(type(y_prob))
     # print(y_prob.max(), y_prob.min(), y_prob.nunique())
