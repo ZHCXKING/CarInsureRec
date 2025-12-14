@@ -2,6 +2,7 @@
 import pandas as pd
 import torch
 from .base import BaseRecommender
+from scipy.special import softmax
 from torch.utils.data import DataLoader, TensorDataset
 from torch import nn, optim
 from rec4torch.models import WideDeep
@@ -66,7 +67,7 @@ class WideDeepRecommend(BaseRecommender):
         self.is_trained = True
 
     # %%
-    def recommend(self, test_data: pd.DataFrame, k: int = 5):
+    def get_proba(self, test_data: pd.DataFrame):
         if not self.is_trained:
             raise ValueError('model is not trained')
         test_data = self._mapping(test_data, fit_bool=False)
@@ -75,7 +76,6 @@ class WideDeepRecommend(BaseRecommender):
         X, _ = build_input_array(test_data, self.linear_feature_columns + self.dnn_feature_columns, target=self.item_name)
         X = torch.tensor(X, dtype=torch.float, device=self.device)
         y = self.model.predict(X).cpu().numpy()
+        y = softmax(y, axis=1)
         result = pd.DataFrame(y, index=test_data.index, columns=self.unique_item)
-        topk_item = result.apply(lambda row: row.nlargest(k).index.tolist(), axis=1)
-        topk_item = pd.DataFrame(topk_item.tolist(), columns=[f'top{i + 1}' for i in range(k)])
-        return topk_item
+        return result

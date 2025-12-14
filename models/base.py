@@ -34,7 +34,7 @@ class BaseRecommender:
         self.is_trained = True
 
     # %%
-    def recommend(self, test_data: pd.DataFrame, k: int = 5):
+    def get_proba(self, test_data: pd.DataFrame):
         if not self.is_trained:
             raise ValueError('model is not trained')
         X = test_data[self.user_name]
@@ -42,9 +42,15 @@ class BaseRecommender:
             X = self._Standardize(X, fit_bool=False)
         y = self.model.predict_proba(X)
         result = pd.DataFrame(y, index=test_data.index, columns=self.unique_item)
+        return result
+    # %%
+    def get_topk_proba(self, test_data: pd.DataFrame, k: int = 5, proba_bool: bool = False):
+        result = self.get_proba(test_data)
         topk_item = result.apply(lambda row: row.nlargest(k).index.tolist(), axis=1)
         topk_item = pd.DataFrame(topk_item.tolist(), columns=[f'top{i + 1}' for i in range(k)])
-        return topk_item
+        topk_proba = result.apply(lambda row: row.nlargest(k).tolist(), axis=1)
+        topk_proba = pd.DataFrame(topk_proba.tolist(), columns=[f'top{i + 1}' for i in range(k)])
+        return topk_item, topk_proba
 
     # %%
     def _Standardize(self, data: pd.DataFrame, fit_bool: bool):

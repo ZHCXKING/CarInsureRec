@@ -38,7 +38,7 @@ class CatBRecommend(BaseRecommender):
         self.unique_item = self.model.classes_
         self.is_trained = True
     #%%
-    def recommend(self, test_data: pd.DataFrame, k: int = 5):
+    def get_proba(self, test_data: pd.DataFrame):
         if not self.is_trained:
             raise ValueError('model is not trained')
         test_data = self._mapping(test_data, fit_bool=False)
@@ -47,6 +47,4 @@ class CatBRecommend(BaseRecommender):
             X = self._Standardize(X, fit_bool=False)
         y = self.model.predict_proba(X)
         result = pd.DataFrame(y, index=test_data.index, columns=self.unique_item)
-        topk_item = result.apply(lambda row: row.nlargest(k).index.tolist(), axis=1)
-        topk_item = pd.DataFrame(topk_item.tolist(), columns=[f'top{i + 1}' for i in range(k)])
-        return topk_item
+        return result
