@@ -1,21 +1,23 @@
 # %%
-from .base import BaseRecommender
 from .BNRecommend import BNRecommend
 from .KNNRecommend import KNNRecommend
 from .LRRecommend import LRRecommend
 from .DeepFMRecommend import DeepFMRecommend
 from .WideDeepRecommend import WideDeepRecommend
 from .RFRecommend import RFRecommend
-from .XGBoostRecommend import XGBoostRecommend
+from .XGBRecommend import XGBRecommend
+from .LGBMRecommend import LGBMRecommend
+from .CatBRecommend import CatBRecommend
 
 # %%
 __all__ = [
-    'BaseRecommender',
     'LRRecommend',
     'BNRecommend',
     'KNNRecommend',
     'DeepFMRecommend',
     'WideDeepRecommend',
     'RFRecommend',
-    'XGBoostRecommend'
+    'XGBRecommend',
+    'LGBMRecommend',
+    'CatBRecommend'
 ]

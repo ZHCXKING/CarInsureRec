@@ -5,7 +5,7 @@ from xgboost import XGBClassifier
 
 # https://docs.xgboost.com.cn/en/stable/python/python_api.html#xgboost.XGBClassifier
 # %%
-class XGBoostRecommend(BaseRecommender):
+class XGBRecommend(BaseRecommender):
     def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
                  sparse_features: list | None = None, dense_features: list | None = None, standard_bool: bool = False,
                  seed: int = 42, **kwargs):

@@ -1,5 +1,5 @@
 from src.utils import load
-from models import BNRecommend, KNNRecommend, LRRecommend, DeepFMRecommend, WideDeepRecommend, RFRecommend, XGBoostRecommend
+from models import BNRecommend, KNNRecommend, LRRecommend, DeepFMRecommend, WideDeepRecommend, RFRecommend, XGBRecommend, LGBMRecommend, CatBRecommend
 
 train, test = load('test', amount=1000, split_num=500, fillna=True)
 user_name = ['Age', 'DrivingExp', 'Occupation', 'NCD', 'Make', 'Car.year', 'Car.price']
@@ -13,7 +13,9 @@ dense_features = ['Age', 'Car.year', 'Car.price', 'DrivingExp']
 #model = DeepFMRecommend(user_name, item_name, date_name, sparse_features, dense_features, standard_bool=True, seed=42)
 #model = WideDeepRecommend(user_name, item_name, date_name, sparse_features, dense_features, standard_bool=True, seed=42)
 #model = RFRecommend(user_name, item_name, date_name, sparse_features, dense_features, standard_bool=True, seed=42)
-model = XGBoostRecommend(user_name, item_name, date_name, sparse_features, dense_features, standard_bool=True, seed=42)
+#model = XGBRecommend(user_name, item_name, date_name, sparse_features, dense_features, standard_bool=True, seed=42)
+#model = LGBMRecommend(user_name, item_name, date_name, sparse_features, dense_features, standard_bool=True, seed=42)
+model = CatBRecommend(user_name, item_name, date_name, sparse_features, dense_features, standard_bool=True, seed=42)
 model.fit(train)
 y_prob = model.recommend(test, k=10)
 print(y_prob.duplicated().sum())
