@@ -5,6 +5,7 @@ from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import BayesianRidge
+from sklearn.gaussian_process import GaussianProcessRegressor
 
 
 # %%
@@ -13,6 +14,8 @@ def _select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42
         imputer = IterativeImputer(estimator=RandomForestRegressor(), max_iter=50, max_value=Max, min_value=Min, random_state=seed)
     elif method == 'iterative_NB':
         imputer = IterativeImputer(estimator=BayesianRidge(), max_iter=50, max_value=Max, min_value=Min, random_state=seed)
+    elif method == 'iterative_Ga':
+        imputer = IterativeImputer(estimator=GaussianProcessRegressor(), max_iter=50, max_value=Max, min_value=Min, random_state=seed)
     else:
         raise ValueError('method must be iterative_RF or iterative_NB')
     return imputer

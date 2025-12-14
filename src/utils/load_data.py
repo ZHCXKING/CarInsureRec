@@ -27,6 +27,8 @@ def load(data_type: str = 'test',
         data = pd.read_excel(root / 'data' / 'All Data.xlsx', sheet_name='coding', nrows=amount)
     elif data_type == 'test':
         data = pd.read_excel(root / 'data' / 'All Data.xlsx', sheet_name='filling', nrows=amount)
+    elif data_type == 'dropna':
+        data = pd.read_excel(root / 'data' / 'All Data.xlsx', sheet_name='dropping', nrows=amount)
     elif data_type == 'synthetic':
         if amount is None:
             raise ValueError('When loading synthetic data, amount cannot be None.')

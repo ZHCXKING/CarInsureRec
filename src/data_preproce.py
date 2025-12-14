@@ -72,6 +72,11 @@ df.sort_values(by='Date', inplace=True, ignore_index=True)
 with pd.ExcelWriter(root / 'data' / 'All Data.xlsx', 'openpyxl', mode='a', if_sheet_exists='replace') as writer:
     df.to_excel(writer, sheet_name='coding', index=False)
 # %%
+df_drop = df.copy()
+df_drop = df_drop.dropna(ignore_index=True)
+with pd.ExcelWriter(root / 'data' / 'All Data.xlsx', 'openpyxl', mode='a', if_sheet_exists='replace') as writer:
+    df_drop.to_excel(writer, sheet_name='dropping', index=False)
+# %%
 df_imput = df.copy()
 df_imput = filling(df_imput)
 with pd.ExcelWriter(root / 'data' / 'All Data.xlsx', 'openpyxl', mode='a', if_sheet_exists='replace') as writer:
