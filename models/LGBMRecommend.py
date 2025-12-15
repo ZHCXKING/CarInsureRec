@@ -18,10 +18,9 @@ class LGBMRecommend(BaseRecommender):
             'num_leaves': 31,
             'max_depth': -1,
             'boosting_type': 'gbdt',
-            'verbose': False,
             'random_state': self.seed
         }
-        model_params = ['learning_rate', 'n_estimators', 'num_leaves', 'max_depth', 'boosting_type', 'verbose', 'random_state']
+        model_params = ['learning_rate', 'n_estimators', 'num_leaves', 'max_depth', 'boosting_type', 'random_state']
         self.kwargs.update(default_params)
         self.kwargs.update(kwargs)
         model_params = {key: self.kwargs[key] for key in model_params}

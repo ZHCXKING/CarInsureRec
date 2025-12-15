@@ -18,7 +18,7 @@ class CatBRecommend(BaseRecommender):
             'learning_rate': None,
             'depth': None,
             'allow_writing_files': False,
-            'verbose': False,
+            'verbose': True,
             'cat_features': self.sparse_feature,
             'random_state': self.seed
         }
@@ -27,7 +27,8 @@ class CatBRecommend(BaseRecommender):
         self.kwargs.update(kwargs)
         model_params = {key: self.kwargs[key] for key in model_params}
         self.model = CatBoostClassifier(**model_params)
-    #%%
+
+    # %%
     def fit(self, train_data: pd.DataFrame):
         train_data = self._mapping(train_data, fit_bool=True)
         X = train_data[self.user_name]
@@ -37,7 +38,8 @@ class CatBRecommend(BaseRecommender):
         self.model.fit(X, y)
         self.unique_item = self.model.classes_
         self.is_trained = True
-    #%%
+
+    # %%
     def get_proba(self, test_data: pd.DataFrame):
         if not self.is_trained:
             raise ValueError('model is not trained')
