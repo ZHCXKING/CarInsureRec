@@ -2,7 +2,6 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from src.utils.fillna import filling
 from sdv.metadata import Metadata
 from sdv.single_table import CTGANSynthesizer
 
@@ -69,6 +68,7 @@ df['Car.year'] = pd.to_numeric(df['Car.year'], errors='coerce')
 df['Car.year'] = df['Date'].dt.year - df['Car.year']
 df.loc[df['Car.year'] < 0, 'Car.year'] = np.nan
 df.sort_values(by='Date', inplace=True, ignore_index=True)
+df = df.drop(columns='Date')
 with pd.ExcelWriter(root / 'data' / 'All Data.xlsx', 'openpyxl', mode='a', if_sheet_exists='replace') as writer:
     df.to_excel(writer, sheet_name='coding', index=False)
 # %%
@@ -76,11 +76,6 @@ df_drop = df.copy()
 df_drop = df_drop.dropna(ignore_index=True)
 with pd.ExcelWriter(root / 'data' / 'All Data.xlsx', 'openpyxl', mode='a', if_sheet_exists='replace') as writer:
     df_drop.to_excel(writer, sheet_name='dropping', index=False)
-# %%
-df_imput = df.copy()
-df_imput = filling(df_imput)
-with pd.ExcelWriter(root / 'data' / 'All Data.xlsx', 'openpyxl', mode='a', if_sheet_exists='replace') as writer:
-    df_imput.to_excel(writer, sheet_name='filling', index=False)
 # %%
 df_sdv = df.copy()
 metadata = Metadata.load_from_json(filepath=root / 'data' / 'Metadata.json')

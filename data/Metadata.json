@@ -16,9 +16,6 @@
                 "NCD": {
                     "sdtype": "categorical"
                 },
-                "Date": {
-                    "sdtype": "datetime"
-                },
                 "Make": {
                     "sdtype": "categorical"
                 },

@@ -1,6 +1,7 @@
 # %%
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
+from src.evaluation import *
 
 
 # %%
@@ -45,7 +46,7 @@ class BaseRecommender:
         return result
 
     # %%
-    def get_topk_proba(self, test_data: pd.DataFrame, k: int = 5):
+    def get_topk_proba(self, test_data: pd.DataFrame, k: int=5):
         result = self.get_proba(test_data)
         topk_item = result.apply(lambda row: row.nlargest(k).index.tolist(), axis=1)
         topk_item = pd.DataFrame(topk_item.tolist(), columns=[f'top{i + 1}' for i in range(k)])
@@ -54,12 +55,25 @@ class BaseRecommender:
         return topk_item, topk_proba
 
     # %%
-    def recommend(self, test_data: pd.DataFrame, k: int = 5):
+    def recommend(self, test_data: pd.DataFrame, k: int=5):
         result = self.get_proba(test_data)
         topk_item = result.apply(lambda row: row.nlargest(k).index.tolist(), axis=1)
         topk_item = pd.DataFrame(topk_item.tolist(), columns=[f'top{i + 1}' for i in range(k)])
         return topk_item
 
+    # %%
+    def score_test(self, test_data: pd.DataFrame, method: str='mrr', k: int=5):
+        item = test_data[self.item_name]
+        topk_item = self.recommend(test_data, k=k)
+        if method == 'mrr':
+            score = mrr_k(item, topk_item, k)
+        elif method == 'recall_k':
+            score = recall_k(item, topk_item, k)
+        elif method == 'ndcg_k':
+            score = ndcg_k(item, topk_item, k)
+        else:
+            raise ValueError('method is not supported')
+        return score
     # %%
     def _Standardize(self, data: pd.DataFrame, fit_bool: bool):
         if self.dense_feature is None:
