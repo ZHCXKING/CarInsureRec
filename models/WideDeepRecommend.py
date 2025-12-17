@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch import nn, optim
 from rec4torch.models import WideDeep
 from rec4torch.inputs import SparseFeat, DenseFeat, build_input_array
+from rec4torch.snippets import seed_everything
 
 
 # https://github.com/Tongjilibo/rec4torch
@@ -32,7 +33,7 @@ class WideDeepRecommend(BaseRecommender):
         self.out_dim = None
         self.linear_feature_columns = None
         self.dnn_feature_columns = None
-        torch.manual_seed(self.seed)
+        seed_everything(self.seed)
 
     # %%
     def fit(self, train_data: pd.DataFrame):

@@ -44,7 +44,6 @@ class BaseRecommender:
         y = self.model.predict_proba(X)
         result = pd.DataFrame(y, index=test_data.index, columns=self.unique_item)
         return result
-
     # %%
     def get_topk_proba(self, test_data: pd.DataFrame, k: int=5):
         result = self.get_proba(test_data)
@@ -65,7 +64,7 @@ class BaseRecommender:
     def score_test(self, test_data: pd.DataFrame, method: str='mrr', k: int=5):
         item = test_data[self.item_name]
         topk_item = self.recommend(test_data, k=k)
-        if method == 'mrr':
+        if method == 'mrr_k':
             score = mrr_k(item, topk_item, k)
         elif method == 'recall_k':
             score = recall_k(item, topk_item, k)
