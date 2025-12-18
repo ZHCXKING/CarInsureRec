@@ -9,6 +9,7 @@ from .XGBRecommend import XGBRecommend
 from .LGBMRecommend import LGBMRecommend
 from .CatBRecommend import CatBRecommend
 from .MLPRecommend import MLPRecommend
+from .CoMICERecommend import CoMICERecommend
 
 # %%
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     'XGBRecommend',
     'LGBMRecommend',
     'CatBRecommend',
-    'MLPRecommend'
+    'MLPRecommend',
+    'CoMICERecommend'
 ]

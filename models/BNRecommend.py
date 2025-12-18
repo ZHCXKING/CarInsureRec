@@ -9,10 +9,10 @@ from pyagrum.skbn import BNClassifier
 class BNRecommend(BaseRecommender):
     def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
                  sparse_features: list | None = None, dense_features: list | None = None, standard_bool: bool = False,
-                 seed: int = 42, **kwargs):
+                 seed: int = 42, k: int = 3, **kwargs):
         if (user_name is None) or (item_name is None):
             raise ValueError('user_name and item_name are required')
-        super().__init__('BN', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed)
+        super().__init__('BN', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'learningMethod': 'MIIC',
             'scoringType': 'BIC',
@@ -29,7 +29,7 @@ class BNRecommend(BaseRecommender):
     def fit(self, train_data: pd.DataFrame):
         X = train_data[self.user_name]
         if self.standard_bool:
-            X = self._Standardize(X, fit_bool=True)
+            X = self._standardize(X, fit_bool=True)
         y = train_data[self.item_name]
         self.model.fit(X, y)
         self.unique_item = self.model.bn.variable(self.model.target).labels()

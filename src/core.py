@@ -22,16 +22,19 @@ class RecModel(nn.Module):
             nn.Linear(self.input_dim, 128),
             nn.BatchNorm1d(128),
             nn.ReLU(),
-            #nn.Dropout(0.3),
+            nn.Dropout(0.1),
             nn.Linear(128, 256),
             nn.BatchNorm1d(256),
             nn.ReLU(),
+            nn.Dropout(0.1),
             nn.Linear(256, embed_dim)
         )
         self.classifier_head = nn.Linear(embed_dim, num_classes)
         self.projection_head = nn.Sequential(
             nn.Linear(embed_dim, embed_dim),
+            nn.BatchNorm1d(embed_dim),
             nn.ReLU(),
+            nn.Dropout(0.1),
             nn.Linear(embed_dim, embed_dim)
         )
     #%%
@@ -48,17 +51,26 @@ class RecModel(nn.Module):
         proj = F.normalize(proj, dim=1)
         return logits, proj
 #%%
-def train_one_epoch(model, dataloader, optimizer, device, lambda_nce=1.0, lambda_kl=5.0, temperature=0.1):
+def train_one_epoch(model, dataloader, optimizer, device, lambda_nce=1.0, lambda_kl=5.0, lambda_topk=0.5, temperature=0.1, topk=5, margin=0.2):
     model.train()
-    total_loss = 0
-    for x_view1, x_view2, y in dataloader: #x_view1: [B, d], x_view2: [B, d], y: [B]
+    total_loss = 0.0
+    topk_loss_fn = TopKMarginLoss(k=topk, margin=margin).to(device)
+    for x_view1, x_view2, y in dataloader:
         x_view1, x_view2, y = x_view1.to(device), x_view2.to(device), y.to(device)
         optimizer.zero_grad()
         logits1, proj1 = model(x_view1)
         logits2, proj2 = model(x_view2)
-        # A. 多分类交叉熵
-        loss_ce = 0.5 * (F.cross_entropy(logits1, y) + F.cross_entropy(logits2, y))
-        # B. InfoNCE Loss
+        # A. Cross Entropy (Label Smoothing)
+        loss_ce = 0.5 * (
+            F.cross_entropy(logits1, y, label_smoothing=0.1) +
+            F.cross_entropy(logits2, y, label_smoothing=0.1)
+        )
+        # B. Top-k Margin Loss
+        loss_topk = 0.5 * (
+            topk_loss_fn(logits1, y) +
+            topk_loss_fn(logits2, y)
+        )
+        # C. InfoNCE Loss
         batch_size = x_view1.size(0)
         features = torch.cat([proj1, proj2], dim=0)
         sim_matrix = torch.matmul(features, features.T) / temperature
@@ -69,45 +81,56 @@ def train_one_epoch(model, dataloader, optimizer, device, lambda_nce=1.0, lambda
         mask = torch.eye(2 * batch_size, dtype=torch.bool).to(device)
         sim_matrix.masked_fill_(mask, -9e15)
         loss_nce = F.cross_entropy(sim_matrix, labels_contrastive)
-        # C. KL
+        # D. KL Consistency Loss
         p1 = F.log_softmax(logits1, dim=1)
         p2 = F.log_softmax(logits2, dim=1)
         loss_kl = 0.5 * (
             F.kl_div(p1, p2.exp(), reduction='batchmean') +
             F.kl_div(p2, p1.exp(), reduction='batchmean')
         )
-        # all loss
-        loss = loss_ce + lambda_nce * loss_nce + lambda_kl * loss_kl
+        # Total Loss
+        loss = (loss_ce + lambda_topk * loss_topk + lambda_nce * loss_nce + lambda_kl * loss_kl)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
     avg_loss = total_loss / len(dataloader)
-    print(f"Epoch Loss: {avg_loss:.4f} (CE: {loss_ce.item():.4f}, NCE: {loss_nce.item():.4f}, KL: {loss_kl.item():.4f})")
-    return total_loss / len(dataloader)
+    print(
+        f"Epoch Loss: {avg_loss:.4f} | "
+        f"CE: {loss_ce.item():.4f} | "
+        f"TopK: {loss_topk.item():.4f} | "
+        f"NCE: {loss_nce.item():.4f} | "
+        f"KL: {loss_kl.item():.4f}"
+    )
+    return avg_loss
 #%%
-def validate_and_get_probs(model, dataloader, device):
+def validate_and_get_probs(model, dataloader, device, alpha=1.0, eps=1e-8):
+    """
+    返回 risk-aware score，用于排序或评估
+    shape: [Total_Samples, Num_Classes]
+    """
     model.eval()
-    all_probs = []
+    all_scores = []
     with torch.no_grad():
         for x_all, y in dataloader:
-            # x_all shape: [Batch, m, d]
+            # x_all: [Batch, m, d]
             x_all = x_all.to(device)
             batch_size, m, d = x_all.shape
-            # 1. 展平并推理
-            x_flat = x_all.view(-1, d)
-            logits, _ = model(x_flat)
-            # 2. 计算概率
-            probs = F.softmax(logits, dim=1)  # [Batch * m, Num_Classes]
-            # 3. 还原形状并对 m 个插补维度取平均
-            # probs.view(...) -> [Batch, m, Num_Classes]
-            # .mean(dim=1)    -> [Batch, Num_Classes]
-            avg_probs = probs.view(batch_size, m, -1).mean(dim=1)
-            # 4. 收集结果
-            all_probs.append(avg_probs.cpu().numpy())
-    # 5. 垂直拼接成 NumPy 二维数组
-    # final_probs 形状: [Total_Samples, Num_Classes]
-    final_probs = np.concatenate(all_probs, axis=0)
-    return final_probs
+            # 1. 展平插补维度
+            x_flat = x_all.view(-1, d)  # [Batch*m, d]
+            # 2. 前向推理
+            logits, _ = model(x_flat)   # [Batch*m, C]
+            # 3. softmax 概率
+            probs = F.softmax(logits, dim=1)  # [Batch*m, C]
+            # 4. reshape 回插补维度
+            probs = probs.view(batch_size, m, -1)  # [B, m, C]
+            # 5. 计算期望 & 方差
+            mean_probs = probs.mean(dim=1)                  # μ: [B, C]
+            var_probs = probs.var(dim=1, unbiased=False)    # σ²: [B, C]
+            # 6. risk-aware score
+            risk_scores = mean_probs / (1.0 + alpha * var_probs + eps)
+            all_scores.append(risk_scores.cpu().numpy())
+    final_scores = np.concatenate(all_scores, axis=0)
+    return final_scores
 #%%
 class RecDataset(Dataset):
     def __init__(self, X_imputed, y, mode='train'):
@@ -174,7 +197,29 @@ class transform_meth():
                 data[col] = data[col].map(lambda x: self.mapping[col].get(x, 0))
         return data
 #%%
-m = 3
+class TopKMarginLoss(nn.Module):
+    def __init__(self, k=5, margin=0.2):
+        super().__init__()
+        self.k = k
+        self.margin = margin
+    def forward(self, logits, targets):
+        """
+        logits: [B, C]
+        targets: [B]
+        """
+        B = logits.size(0)
+        # top-k logits
+        topk_vals, topk_idx = torch.topk(logits, self.k, dim=1)
+        # true class logits
+        true_logits = logits[torch.arange(B), targets]
+        # mask true label in top-k
+        mask = topk_idx != targets.unsqueeze(1)
+        # hardest negative in top-k
+        neg_logits = topk_vals.masked_fill(~mask, -1e9).max(dim=1).values
+        loss = F.relu(self.margin - true_logits + neg_logits)
+        return loss.mean()
+#%%
+m = 5
 batch_size=64
 embed_dim=128
 epochs = 500

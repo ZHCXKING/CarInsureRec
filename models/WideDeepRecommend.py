@@ -15,10 +15,10 @@ from rec4torch.snippets import seed_everything
 class WideDeepRecommend(BaseRecommender):
     def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
                  sparse_features: list | None = None, dense_features: list | None = None, standard_bool: bool = False,
-                 seed: int = 42, **kwargs):
+                 seed: int = 42, k: int = 3, **kwargs):
         if (user_name is None) or (item_name is None):
             raise ValueError('user_name and item_name are required')
-        super().__init__('WideDeep', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed)
+        super().__init__('WideDeep', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed,k)
         default_params = {
             'embedding_dim': 16,
             'dimension': 1,
@@ -41,14 +41,14 @@ class WideDeepRecommend(BaseRecommender):
         self.unique_item = list(range(self.out_dim))
         train_data = self._mapping(train_data, fit_bool=True)
         if self.standard_bool:
-            train_data = self._Standardize(train_data, fit_bool=True)
+            train_data = self._standardize(train_data, fit_bool=True)
         sparse_feature_columns = [
             SparseFeat(feat, self.vocabulary_sizes[feat], embedding_dim=self.kwargs['embedding_dim'])
-            for feat in self.sparse_feature
+            for feat in self.sparse_features
         ]
         dense_feature_columns = [
             DenseFeat(feat, dimension=self.kwargs['dimension'])
-            for feat in self.dense_feature
+            for feat in self.dense_features
         ]
         feature_columns = sparse_feature_columns + dense_feature_columns
         self.linear_feature_columns = feature_columns
@@ -73,7 +73,7 @@ class WideDeepRecommend(BaseRecommender):
             raise ValueError('model is not trained')
         test_data = self._mapping(test_data, fit_bool=False)
         if self.standard_bool:
-            test_data = self._Standardize(test_data, fit_bool=False)
+            test_data = self._standardize(test_data, fit_bool=False)
         X, _ = build_input_array(test_data, self.linear_feature_columns + self.dnn_feature_columns, target=self.item_name)
         X = torch.tensor(X, dtype=torch.float, device=self.device)
         y = self.model.predict(X).cpu().numpy()
