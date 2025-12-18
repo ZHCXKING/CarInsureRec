@@ -1,14 +1,7 @@
 # %%
-from .BNRecommend import BNRecommend
-from .KNNRecommend import KNNRecommend
-from .LRRecommend import LRRecommend
-from .DeepFMRecommend import DeepFMRecommend
-from .WideDeepRecommend import WideDeepRecommend
-from .RFRecommend import RFRecommend
-from .XGBRecommend import XGBRecommend
-from .LGBMRecommend import LGBMRecommend
-from .CatBRecommend import CatBRecommend
-from .MLPRecommend import MLPRecommend
+from .MachineModel import LRRecommend, BNRecommend, KNNRecommend
+from .TreeModel import RFRecommend, XGBRecommend, LGBMRecommend, CatBRecommend
+from .NetworkModel import DeepFMRecommend, WideDeepRecommend
 from .CoMICERecommend import CoMICERecommend
 
 # %%
@@ -22,6 +15,5 @@ __all__ = [
     'XGBRecommend',
     'LGBMRecommend',
     'CatBRecommend',
-    'MLPRecommend',
     'CoMICERecommend'
 ]

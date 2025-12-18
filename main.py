@@ -5,7 +5,7 @@ from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from src.utils import load
 from src.utils import filling, split_filling, mice_samples
-from models import XGBRecommend, LGBMRecommend, DeepFMRecommend, MLPRecommend, KNNRecommend, CoMICERecommend, WideDeepRecommend
+from models import LRRecommend, BNRecommend, KNNRecommend, DeepFMRecommend, WideDeepRecommend, RFRecommend, XGBRecommend, LGBMRecommend, CatBRecommend, CoMICERecommend
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import LinearSVR
@@ -50,7 +50,7 @@ date_name = 'Date'
 sparse_features = ['Occupation', 'NCD', 'Make']
 dense_features = ['Age', 'Car.year', 'Car.price', 'DrivingExp']
 score = []
-for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+for missing_rate in [0]:
     train_miss = add_missing_values(train, missing_rate, feature_cols=user_name, seed=42)
     test_miss = add_missing_values(test, missing_rate, feature_cols=user_name, seed=42)
     model = CoMICERecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
