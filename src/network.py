@@ -1,6 +1,18 @@
 import torch
+import random
+import os
+import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+def set_seed(seed: int):
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 class CoMICEHead(nn.Module):
     """
     CoMICE 的核心热插拔头。
@@ -9,7 +21,6 @@ class CoMICEHead(nn.Module):
     """
     def __init__(self, input_dim, num_classes, proj_dim=128):
         super().__init__()
-
         # 1. 投影头 (Projection Head) -> 用于 InfoNCE Loss
         self.projection_head = nn.Sequential(
             nn.Linear(input_dim, proj_dim),

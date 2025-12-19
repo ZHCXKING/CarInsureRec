@@ -5,7 +5,7 @@ from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from src.utils import load
 from src.utils import filling, split_filling, mice_samples
-from models import LRRecommend, BNRecommend, KNNRecommend, DeepFMRecommend, WideDeepRecommend, RFRecommend, XGBRecommend, LGBMRecommend, CatBRecommend, CoMICERecommend
+from models import *
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import LinearSVR
@@ -42,7 +42,7 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
 #%%
 m = 3
 k = 3
-train, test = load('dropna', amount=None, split_num=250) #original, dropna
+train, test = load('dropna', amount=None, split_num=1000) #original, dropna
 #train, test, _ = split_filling(train, test, method='iterative_SVM', seed=42)
 user_name = ['Age', 'DrivingExp', 'Occupation', 'NCD', 'Make', 'Car.year', 'Car.price']
 item_name = 'InsCov'
@@ -50,12 +50,12 @@ date_name = 'Date'
 sparse_features = ['Occupation', 'NCD', 'Make']
 dense_features = ['Age', 'Car.year', 'Car.price', 'DrivingExp']
 score = []
-for missing_rate in [0]:
+for missing_rate in [0.5, 0.6, 0.7, 0.8, 0.9]:
     train_miss = add_missing_values(train, missing_rate, feature_cols=user_name, seed=42)
     test_miss = add_missing_values(test, missing_rate, feature_cols=user_name, seed=42)
-    model = CoMICERecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
+    model = XGBRecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
     model.fit(train_miss)
-    score.append(model.score_test(test_miss, method='ndcg_k'))
+    score.append(model.score_test(test_miss, method='recall_k'))
 print(score)
 # train_data_sets, test_data_sets, _ = mice_samples(train, test, method='iterative_NB', m=m, seed=42)
 # all_test_probs = []

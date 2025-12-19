@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from .base import BaseRecommender
 from src.utils import filling, process_mice_list, round
-from src.network import DCNv2Backbone, DeepFMBackbone, WideDeepBackbone
+from src.network import DCNv2Backbone, DeepFMBackbone, WideDeepBackbone, set_seed
 # %%
 class StandardModel(nn.Module):
     def __init__(self, backbone, num_classes):
@@ -38,12 +38,12 @@ class NetworkRecommender(BaseRecommender):
         self.backbone_class = backbone_class
         default_params = {
             'lr': 1e-4,
-            'batch_size': 64,
-            'feature_dim': 32,
-            'epochs': 200,
+            'batch_size': 256,
+            'feature_dim': 64,
+            'epochs': 250,
             'hidden_units': [256, 128],
             'cross_layers': 3,
-            'mice_method': 'iterative_SVM'
+            'mice_method': 'iterative_Ga'
         }
         self.kwargs.update(default_params)
         self.kwargs.update(kwargs)
@@ -53,6 +53,7 @@ class NetworkRecommender(BaseRecommender):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.optimizer = None
         self.imputer = None
+        set_seed(self.seed)
     # %%
     def _build_model(self, sparse_dims, dense_count, num_classes):
         if self.backbone_class == DCNv2Backbone:

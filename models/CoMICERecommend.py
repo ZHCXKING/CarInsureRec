@@ -7,7 +7,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 from .base import BaseRecommender
 from src.utils import filling, process_mice_list, round
-from src.network import DCNv2Backbone, DeepFMBackbone, WideDeepBackbone, CoMICEHead, CoMICEModel
+from src.network import DCNv2Backbone, DeepFMBackbone, WideDeepBackbone, CoMICEHead, CoMICEModel, set_seed
 class CoMICERecommend(BaseRecommender):
     def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
                  sparse_features: list | None = None, dense_features: list | None = None, standard_bool: bool = False,
@@ -16,21 +16,19 @@ class CoMICERecommend(BaseRecommender):
             raise ValueError('user_name and item_name are required')
         super().__init__('CoMICE', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
-            'm': 3,
+            'm': 5,
             'lr': 1e-4,
-            'batch_size': 64,
-            'feature_dim': 32,  # 特征嵌入维度
-            'proj_dim': 128,  # 对比学习投影维度
-            'epochs': 200,
-            'lambda_topk': 0.5,
+            'batch_size': 256,
+            'feature_dim': 64,
+            'proj_dim': 32,
+            'epochs': 250,
             'lambda_nce': 1.0,
             'temperature': 0.1,
-            'margin': 0.2,
             'alpha': 1.0,
-            'mice_method': 'iterative_SVM',
-            'backbone': 'DCNv2',  # 新增：选择模型骨架 ['DCNv2', 'DeepFM', 'WideDeep']
-            'cross_layers': 3,  # DCNv2 专用参数
-            'hidden_units': [256, 128]  # 通用DNN参数
+            'mice_method': 'iterative_Ga',
+            'backbone': 'DCNv2',
+            'cross_layers': 3,
+            'hidden_units': [256, 128]
         }
         self.kwargs.update(default_params)
         self.kwargs.update(kwargs)
@@ -40,65 +38,58 @@ class CoMICERecommend(BaseRecommender):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.optimizer = None
         self.imputers = []
+        set_seed(self.seed)
     def _build_model(self, sparse_dims, dense_count, num_classes):
-        """内部方法：根据参数构建 Backbone + CoMICEHead"""
         backbone_type = self.kwargs['backbone']
-        # 1. 选择并初始化 Backbone
         if backbone_type == 'DCNv2':
-            backbone = DCNv2Backbone(
-                sparse_dims, dense_count,
-                feature_dim=self.kwargs['feature_dim'],
-                cross_layers=self.kwargs['cross_layers'],
-                hidden_units=self.kwargs['hidden_units']
-            )
+            backbone = DCNv2Backbone(sparse_dims, dense_count, self.kwargs['feature_dim'], self.kwargs['cross_layers'], self.kwargs['hidden_units'])
         elif backbone_type == 'DeepFM':
-            backbone = DeepFMBackbone(
-                sparse_dims, dense_count,
-                feature_dim=self.kwargs['feature_dim'],
-                hidden_units=self.kwargs['hidden_units']
-            )
+            backbone = DeepFMBackbone(sparse_dims, dense_count, self.kwargs['feature_dim'], self.kwargs['hidden_units'])
         elif backbone_type == 'WideDeep':
-            backbone = WideDeepBackbone(
-                sparse_dims, dense_count,
-                feature_dim=self.kwargs['feature_dim'],
-                hidden_units=self.kwargs['hidden_units']
-            )
+            backbone = WideDeepBackbone(sparse_dims, dense_count, self.kwargs['feature_dim'], self.kwargs['hidden_units'])
         else:
             raise ValueError(f"Unsupported backbone: {backbone_type}")
-        # 2. 初始化 CoMICE Head
-        head = CoMICEHead(
-            input_dim=backbone.output_dim,
-            num_classes=num_classes,
-            proj_dim=self.kwargs['proj_dim']
-        )
-        # 3. 组装
+        head = CoMICEHead(input_dim=backbone.output_dim, num_classes=num_classes, proj_dim=self.kwargs['proj_dim'])
         return CoMICEModel(backbone, head).to(self.device)
     def train_one_epoch(self, dataloader):
         self.model.train()
         total_loss = 0.0
-        # 假设 TopKMarginLoss 类已经在外部定义或在同一文件中
-        topk_loss_fn = TopKMarginLoss(k=self.k, margin=self.kwargs['margin']).to(self.device)
-        for x_view1, x_view2, y in dataloader:
-            x_view1, x_view2, y = x_view1.to(self.device), x_view2.to(self.device), y.to(self.device)
+        m = self.kwargs['m']
+        for x_all, y in dataloader:
+            # x_all shape: [batch_size, m, input_dim]
+            batch_size = x_all.size(0)
+            x_all, y = x_all.to(self.device), y.to(self.device)
+            # 将 batch 和 m 维度合并，一次性通过模型以提高效率
+            # x_flat shape: [batch_size * m, input_dim]
+            x_flat = x_all.view(-1, x_all.size(-1))
+            logits_flat, proj_flat = self.model(x_flat)
+            # 1. 分类损失 (Cross Entropy): 计算所有 m 个视角的平均损失
+            # y 需要扩展以匹配 logits_flat
+            y_expanded = y.repeat_interleave(m)
+            loss_ce = F.cross_entropy(logits_flat, y_expanded, label_smoothing=0.1)
+            # 2. 对比损失 (Multi-view InfoNCE)
+            # proj_flat shape: [batch_size * m, proj_dim]
+            # 计算特征相似度矩阵 [BM, BM]
+            sim_matrix = torch.matmul(proj_flat, proj_flat.T) / self.kwargs['temperature']
+            # 构建正样本掩码：同一行的不同插补版本互为正样本
+            # 只有当两个样本来自同一个原始 index 时，mask 为 1
+            labels_idx = torch.arange(batch_size).to(self.device).repeat_interleave(m)
+            mask = (labels_idx.unsqueeze(0) == labels_idx.unsqueeze(1)).fill_diagonal_(False)
+            # 这里采用一种简化的 Multi-view InfoNCE 实现：
+            # 对于每一个视角，其正样本是来自同一 ID 的其他 m-1 个视角
+            # 我们将非正样本（不同 ID）作为负样本
+            # 为了方便计算，我们通过 log_softmax 处理相似度矩阵
+            exp_sim = torch.exp(sim_matrix)
+            # 掩盖掉自对比 (Self-similarity)
+            diag_mask = torch.eye(batch_size * m, device=self.device).bool()
+            exp_sim = exp_sim.masked_fill(diag_mask, 0)
+            # 计算每个维度的 InfoNCE: log(sum(pos_sim) / sum(all_sim))
+            pos_sim = (exp_sim * mask).sum(dim=1)
+            all_sim = exp_sim.sum(dim=1)
+            loss_nce = -torch.log(pos_sim / (all_sim + 1e-8) + 1e-8).mean()
+            # 总损失
+            loss = loss_ce + self.kwargs['lambda_nce'] * loss_nce
             self.optimizer.zero_grad()
-            # 模型输出 (logits, proj_norm)
-            logits1, proj1 = self.model(x_view1)
-            logits2, proj2 = self.model(x_view2)
-            # Loss 计算 (逻辑保持不变)
-            loss_ce = 0.5 * (F.cross_entropy(logits1, y, label_smoothing=0.1) +
-                             F.cross_entropy(logits2, y, label_smoothing=0.1))
-
-            loss_topk = 0.5 * (topk_loss_fn(logits1, y) + topk_loss_fn(logits2, y))
-            # InfoNCE Loss
-            batch_size = x_view1.size(0)
-            features = torch.cat([proj1, proj2], dim=0)
-            sim_matrix = torch.matmul(features, features.T) / self.kwargs['temperature']
-            labels_contrastive = torch.cat([torch.arange(batch_size) + batch_size,
-                                            torch.arange(batch_size)]).to(self.device)
-            mask = torch.eye(2 * batch_size, dtype=torch.bool).to(self.device)
-            sim_matrix.masked_fill_(mask, -9e15)
-            loss_nce = F.cross_entropy(sim_matrix, labels_contrastive)
-            loss = (loss_ce + self.kwargs['lambda_topk'] * loss_topk + self.kwargs['lambda_nce'] * loss_nce)
             loss.backward()
             self.optimizer.step()
             total_loss += loss.item()
@@ -118,13 +109,13 @@ class CoMICERecommend(BaseRecommender):
             self.imputers.append(imputer)
         dense_count = len(self.dense_features)
         sparse_dims = [self.vocabulary_sizes[col] for col in self.sparse_features]
+        # 处理成 [N, M, D] 的张量
         x_train_tensor, y_train_tensor = process_mice_list(train_data_sets, self.user_name, self.item_name)
         train_loader = DataLoader(
-            RecDataset(x_train_tensor, y_train_tensor, mode='train'),
+            RecDataset(x_train_tensor, y_train_tensor),
             batch_size=self.kwargs['batch_size'],
             shuffle=True
         )
-        # --- 使用动态构建方法 ---
         self.model = self._build_model(sparse_dims, dense_count, self.out_dim)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.kwargs['lr'])
         for epoch in range(self.kwargs['epochs']):
@@ -141,58 +132,39 @@ class CoMICERecommend(BaseRecommender):
             test_data_sets.append(data)
         x_test_tensor, y_test_tensor = process_mice_list(test_data_sets, self.user_name, self.item_name)
         test_loader = DataLoader(
-            RecDataset(x_test_tensor, y_test_tensor, mode='eval'),
+            RecDataset(x_test_tensor, y_test_tensor),
             batch_size=self.kwargs['batch_size'],
             shuffle=False
         )
         self.model.eval()
         all_scores = []
         with torch.no_grad():
-            for x_all, y in test_loader:
+            for x_all, _ in test_loader:
                 x_all = x_all.to(self.device)
                 batch_size, m, d = x_all.shape
                 x_flat = x_all.view(-1, d)
-                # 模型返回 (logits, proj), 我们只需要 logits
                 logits, _ = self.model(x_flat)
                 logits = logits.view(batch_size, m, -1)
                 mean_logits = logits.mean(dim=1)
                 var_logits = logits.var(dim=1, unbiased=False)
+                # 风险敏感评分公式
                 risk_scores = mean_logits / (1.0 + self.kwargs['alpha'] * var_logits)
                 all_scores.append(risk_scores.cpu().numpy())
-        finall_scores = np.concatenate(all_scores, axis=0)
-        result = pd.DataFrame(finall_scores, index=test_data.index, columns=self.unique_item)
-        return result
+        final_scores = np.concatenate(all_scores, axis=0)
+        return pd.DataFrame(final_scores, index=test_data.index, columns=self.unique_item)
 class RecDataset(Dataset):
-    def __init__(self, X_imputed, y, mode='train'):
+    def __init__(self, X_imputed, y):
+        """
+        X_imputed: Tensor of shape [N, m, d]
+        y: Tensor of shape [N]
+        """
         self.X = X_imputed
         self.y = y
-        self.mode = mode
         self.N, self.m, self.d = X_imputed.shape
     def __len__(self):
         return self.N
     def __getitem__(self, idx):
-        if self.mode == 'train':
-            idx1, idx2 = random.sample(range(self.m), 2)
-            x_view1 = self.X[idx, idx1, :]
-            x_view2 = self.X[idx, idx2, :]
-            label = self.y[idx]
-            return x_view1, x_view2, label
-        elif self.mode == 'eval':
-            x_all = self.X[idx, :, :]
-            label = self.y[idx]
-            return x_all, label
-        else:
-            raise ValueError('mode is not supported')
-class TopKMarginLoss(nn.Module):
-    def __init__(self, k=5, margin=0.2):
-        super().__init__()
-        self.k = k
-        self.margin = margin
-    def forward(self, logits, targets):
-        B = logits.size(0)
-        topk_vals, topk_idx = torch.topk(logits, self.k, dim=1)
-        true_logits = logits[torch.arange(B), targets]
-        mask = topk_idx != targets.unsqueeze(1)
-        neg_logits = topk_vals.masked_fill(~mask, -1e9).max(dim=1).values
-        loss = F.relu(self.margin - true_logits + neg_logits)
-        return loss.mean()
+        # 无论 train 还是 eval，现在都返回该样本的所有 m 个插补视角
+        x_all = self.X[idx, :, :]  # [m, d]
+        label = self.y[idx]
+        return x_all, label
