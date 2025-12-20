@@ -1,9 +1,6 @@
 # %%
-import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from src.evaluation import *
-
-
 # %%
 class BaseRecommender:
     def __init__(self, model_name: str, user_name: list, item_name: str, date_name: str | None,
@@ -24,7 +21,6 @@ class BaseRecommender:
         self.k = k
         self.unique_item = None
         self.is_trained = False
-
     # %%
     def fit(self, train_data: pd.DataFrame):
         X = train_data[self.user_name]
@@ -34,7 +30,6 @@ class BaseRecommender:
         self.model.fit(X, y)
         self.unique_item = self.model.classes_
         self.is_trained = True
-
     # %%
     def get_proba(self, test_data: pd.DataFrame):
         if not self.is_trained:
@@ -53,16 +48,14 @@ class BaseRecommender:
         topk_proba = result.apply(lambda row: row.nlargest(self.k).tolist(), axis=1)
         topk_proba = pd.DataFrame(topk_proba.tolist(), columns=[f'top{i + 1}' for i in range(self.k)])
         return topk_item, topk_proba
-
     # %%
     def recommend(self, test_data: pd.DataFrame):
         result = self.get_proba(test_data)
         topk_item = result.apply(lambda row: row.nlargest(self.k).index.tolist(), axis=1)
         topk_item = pd.DataFrame(topk_item.tolist(), columns=[f'top{i + 1}' for i in range(self.k)])
         return topk_item
-
     # %%
-    def score_test(self, test_data: pd.DataFrame, method: str='mrr'):
+    def score_test(self, test_data: pd.DataFrame, method: str = 'mrr'):
         item = test_data[self.item_name]
         topk_item = self.recommend(test_data)
         if method == 'mrr_k':
@@ -84,7 +77,6 @@ class BaseRecommender:
         else:
             data[self.dense_features] = self.scaler.transform(data[self.dense_features])
         return data
-
     # %%
     def _mapping(self, data: pd.DataFrame, fit_bool: bool):
         if fit_bool:

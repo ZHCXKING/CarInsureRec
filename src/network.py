@@ -4,6 +4,7 @@ import os
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+# %%
 def set_seed(seed: int):
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -13,6 +14,7 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+# %%
 class CoMICEHead(nn.Module):
     """
     CoMICE 的核心热插拔头。
@@ -36,6 +38,7 @@ class CoMICEHead(nn.Module):
         )
         # 3. 分类头 (Classifier Head) -> 用于 CE Loss / TopK Loss
         self.classifier_head = nn.Linear(input_dim, num_classes)
+    # %%
     def forward(self, feature_vector):
         # A. 生成稳健特征 (for Contrastive Learning)
         proj_feat = self.projection_head(feature_vector)
@@ -47,6 +50,7 @@ class CoMICEHead(nn.Module):
         # C. 生成最终分类 Logits
         logits = self.classifier_head(feat_calibrated)
         return logits, proj_norm
+# %%
 class CoMICEModel(nn.Module):
     """
     通用容器：将任意 Backbone 与 CoMICEHead 组合
@@ -60,6 +64,7 @@ class CoMICEModel(nn.Module):
         features = self.backbone(x)
         # 2. Head 进行去噪和分类
         return self.head(features)
+# %%
 class CrossNet(nn.Module):
     def __init__(self, input_dim, num_layers=3):
         super().__init__()
@@ -68,11 +73,13 @@ class CrossNet(nn.Module):
         self.b = nn.ParameterList([nn.Parameter(torch.empty(input_dim)) for _ in range(num_layers)])
         for w in self.W: nn.init.xavier_uniform_(w)
         for b in self.b: nn.init.zeros_(b)
+    # %%
     def forward(self, x_0):
         x_l = x_0
         for i in range(self.num_layers):
             x_l = x_0 * (torch.mm(x_l, self.W[i]) + self.b[i]) + x_l
         return x_l
+# %%
 class DCNv2Backbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=32, cross_layers=3, hidden_units=[256, 128]):
         super().__init__()
@@ -91,6 +98,7 @@ class DCNv2Backbone(nn.Module):
         self.deep_net = nn.Sequential(*layers)
         # 输出维度是 CrossNet 输出与 DeepNet 输出的拼接
         self.output_dim = self.total_input_dim + hidden_units[-1]
+    # %%
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
@@ -99,6 +107,7 @@ class DCNv2Backbone(nn.Module):
             embs.extend([self.dense_proj[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)])
         x_0 = torch.cat(embs, dim=1)
         return torch.cat([self.cross_net(x_0), self.deep_net(x_0)], dim=1)
+# %%
 class DeepFMBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, hidden_units=[128, 64]):
         super().__init__()
@@ -120,6 +129,7 @@ class DeepFMBackbone(nn.Module):
         self.output_dim = hidden_units[-1]
         # Adapter: 将 Linear+FM 的标量结果投影到 DNN 输出维度，以便融合
         self.adapter = nn.Linear(1, self.output_dim)
+    # %%
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
@@ -137,6 +147,7 @@ class DeepFMBackbone(nn.Module):
         dnn_out = self.dnn(dnn_in)
         # Fusion: DNN + Projected(Linear + FM)
         return dnn_out + self.adapter(lin_out + fm_out)
+# %%
 class WideDeepBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, hidden_units=[128, 64]):
         super().__init__()
@@ -156,6 +167,7 @@ class WideDeepBackbone(nn.Module):
         self.dnn = nn.Sequential(*layers)
         self.output_dim = hidden_units[-1]
         self.adapter = nn.Linear(1, self.output_dim)
+    # %%
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]

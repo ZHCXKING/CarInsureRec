@@ -4,7 +4,6 @@ import numpy as np
 from pathlib import Path
 from sdv.metadata import Metadata
 from sdv.single_table import CTGANSynthesizer
-
 # %%
 root = Path(__file__).parents[1]
 Data1_feature = ['Age', 'Driving exp', 'Occupation', 'Coverage', 'Insurer', 'NCD', 'Settlement Date', 'Make', 'Year of manufacturer', 'Sum of insured']

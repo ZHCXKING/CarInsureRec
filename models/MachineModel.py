@@ -11,7 +11,7 @@ class KNNRecommend(BaseRecommender):
                  seed: int = 42, k: int = 3, **kwargs):
         if (user_name is None) or (item_name is None):
             raise ValueError('user_name and item_name are required')
-        super().__init__('KNN', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed,k)
+        super().__init__('KNN', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'n_neighbors': 10,
             'weights': 'distance',
@@ -57,7 +57,7 @@ class LRRecommend(BaseRecommender):
                  seed: int = 42, k: int = 3, **kwargs):
         if (user_name is None) or (item_name is None):
             raise ValueError('user_name and item_name are required')
-        super().__init__('LR', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed,k)
+        super().__init__('LR', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'C': 10,
             'penalty': 'l2',

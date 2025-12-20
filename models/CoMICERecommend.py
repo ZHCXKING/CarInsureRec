@@ -1,13 +1,13 @@
+# %%
 import numpy as np
 import pandas as pd
 import torch
-import random
 from torch.utils.data import DataLoader, Dataset
-import torch.nn as nn
 from torch.nn import functional as F
 from .base import BaseRecommender
 from src.utils import filling, process_mice_list, round
 from src.network import DCNv2Backbone, DeepFMBackbone, WideDeepBackbone, CoMICEHead, CoMICEModel, set_seed
+# %%
 class CoMICERecommend(BaseRecommender):
     def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
                  sparse_features: list | None = None, dense_features: list | None = None, standard_bool: bool = False,
@@ -39,6 +39,7 @@ class CoMICERecommend(BaseRecommender):
         self.optimizer = None
         self.imputers = []
         set_seed(self.seed)
+    # %%
     def _build_model(self, sparse_dims, dense_count, num_classes):
         backbone_type = self.kwargs['backbone']
         if backbone_type == 'DCNv2':
@@ -51,6 +52,7 @@ class CoMICERecommend(BaseRecommender):
             raise ValueError(f"Unsupported backbone: {backbone_type}")
         head = CoMICEHead(input_dim=backbone.output_dim, num_classes=num_classes, proj_dim=self.kwargs['proj_dim'])
         return CoMICEModel(backbone, head).to(self.device)
+    # %%
     def train_one_epoch(self, dataloader):
         self.model.train()
         total_loss = 0.0
@@ -94,6 +96,7 @@ class CoMICERecommend(BaseRecommender):
             self.optimizer.step()
             total_loss += loss.item()
         print(f"Loss: {total_loss / len(dataloader):.4f}")
+    # %%
     def fit(self, train_data: pd.DataFrame):
         self.out_dim = train_data[self.item_name].nunique()
         self.unique_item = list(range(self.out_dim))
@@ -121,6 +124,7 @@ class CoMICERecommend(BaseRecommender):
         for epoch in range(self.kwargs['epochs']):
             self.train_one_epoch(train_loader)
         self.is_trained = True
+    # %%
     def get_proba(self, test_data: pd.DataFrame):
         test_data = self._mapping(test_data, fit_bool=False)
         if self.standard_bool:
@@ -152,6 +156,7 @@ class CoMICERecommend(BaseRecommender):
                 all_scores.append(risk_scores.cpu().numpy())
         final_scores = np.concatenate(all_scores, axis=0)
         return pd.DataFrame(final_scores, index=test_data.index, columns=self.unique_item)
+# %%
 class RecDataset(Dataset):
     def __init__(self, X_imputed, y):
         """

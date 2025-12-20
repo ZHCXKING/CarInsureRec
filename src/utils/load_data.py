@@ -2,8 +2,6 @@
 import pandas as pd
 from sdv.utils import load_synthesizer
 from pathlib import Path
-
-
 # %%
 def _filter_data(df: pd.DataFrame, target_name: str, min_count=2):
     value_counts = df[target_name].value_counts()
@@ -11,7 +9,7 @@ def _filter_data(df: pd.DataFrame, target_name: str, min_count=2):
     df = df[df[target_name].isin(valid_categories)].reset_index(drop=True)
     df[target_name], _ = pd.factorize(df[target_name], sort=True)
     return df
-#%%
+# %%
 def _split_guaranteed(df: pd.DataFrame, target_name: str, split_num: int, seed: int = 42):
     df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
     cum_count = df.groupby(target_name).cumcount()

@@ -105,7 +105,7 @@ class NetworkRecommender(BaseRecommender):
                 self.optimizer.step()
                 total_loss += loss.item()
             if (epoch + 1) % 10 == 0:
-                print(f"Epoch {epoch+1}: Loss {total_loss/len(train_loader):.4f}")
+                print(f"Epoch {epoch + 1}: Loss {total_loss / len(train_loader):.4f}")
         self.is_trained = True
     # %%
     def get_proba(self, test_data: pd.DataFrame):

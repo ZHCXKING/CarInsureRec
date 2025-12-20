@@ -50,10 +50,10 @@ date_name = 'Date'
 sparse_features = ['Occupation', 'NCD', 'Make']
 dense_features = ['Age', 'Car.year', 'Car.price', 'DrivingExp']
 score = []
-for missing_rate in [0.5, 0.6, 0.7, 0.8, 0.9]:
+for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
     train_miss = add_missing_values(train, missing_rate, feature_cols=user_name, seed=42)
     test_miss = add_missing_values(test, missing_rate, feature_cols=user_name, seed=42)
-    model = XGBRecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
+    model = CoMICERecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
     model.fit(train_miss)
     score.append(model.score_test(test_miss, method='recall_k'))
 print(score)

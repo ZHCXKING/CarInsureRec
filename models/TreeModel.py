@@ -12,7 +12,7 @@ class XGBRecommend(BaseRecommender):
                  seed: int = 42, k: int = 3, **kwargs):
         if (user_name is None) or (item_name is None):
             raise ValueError('user_name and item_name are required')
-        super().__init__('XGBoost', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed,k)
+        super().__init__('XGBoost', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'n_estimators': None,
             'learning_rate': None,
@@ -33,7 +33,7 @@ class LGBMRecommend(BaseRecommender):
                  seed: int = 42, k: int = 3, **kwargs):
         if (user_name is None) or (item_name is None):
             raise ValueError('user_name and item_name are required')
-        super().__init__('LightGBM', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed,k)
+        super().__init__('LightGBM', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'learning_rate': 0.1,
             'n_estimators': 100,
@@ -97,7 +97,7 @@ class RFRecommend(BaseRecommender):
                  seed: int = 42, k: int = 3, **kwargs):
         if (user_name is None) or (item_name is None):
             raise ValueError('user_name and item_name are required')
-        super().__init__('RF', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed,k)
+        super().__init__('RF', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'n_estimators': 100,
             'criterion': 'gini',

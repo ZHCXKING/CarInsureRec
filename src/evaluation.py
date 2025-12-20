@@ -1,7 +1,7 @@
-#%%
+# %%
 import pandas as pd
 import numpy as np
-#%%
+# %%
 def mrr_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
     reciprocal_ranks = []
     for index, row in topk_item.iterrows():
@@ -14,7 +14,7 @@ def mrr_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
         reciprocal_ranks.append(rr)
     mrr = np.mean(reciprocal_ranks)
     return mrr
-#%%
+# %%
 def recall_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
     recalls = []
     for index, row in topk_item.iterrows():
@@ -24,7 +24,7 @@ def recall_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
         else:
             recalls.append(0)
     return np.mean(recalls)
-#%%
+# %%
 def ndcg_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
     ndcg_scores = []
     for index, row in topk_item.iterrows():
