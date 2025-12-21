@@ -16,7 +16,6 @@ class CoMICERecommend(BaseRecommender):
             raise ValueError('user_name and item_name are required')
         super().__init__('CoMICE', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
-            'm': 1,
             'lr': 1e-4,
             'batch_size': 128,
             'feature_dim': 64,
@@ -25,7 +24,7 @@ class CoMICERecommend(BaseRecommender):
             'lambda_nce': 1.0,
             'temperature': 0.1,
             'mice_method': 'MICE_Ga',
-            'backbone': 'DCNv2',
+            'backbone': 'DeepFM',
             'cross_layers': 3,
             'hidden_units': [256, 128]
         }
@@ -36,7 +35,7 @@ class CoMICERecommend(BaseRecommender):
         self.model = None
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.optimizer = None
-        self.imputers = []
+        self.imputer = None  # 变为单个 imputer
         set_seed(self.seed)
     # %%
     def _build_model(self, sparse_dims, dense_count, num_classes):
@@ -49,44 +48,41 @@ class CoMICERecommend(BaseRecommender):
             backbone = WideDeepBackbone(sparse_dims, dense_count, self.kwargs['feature_dim'], self.kwargs['hidden_units'])
         else:
             raise ValueError(f"Unsupported backbone: {backbone_type}")
+        # 这里可以使用你优化过的 CoMICEHead
         head = CoMICEHead(input_dim=backbone.output_dim, num_classes=num_classes, proj_dim=self.kwargs['proj_dim'])
         return CoMICEModel(backbone, head).to(self.device)
     # %%
     def train_one_epoch(self, dataloader):
         self.model.train()
         total_loss, loss_ce, loss_nce = 0.0, 0.0, 0.0
-        m = self.kwargs['m']
-        for x_all, y in dataloader:
-            # x_all shape: [batch_size, m, input_dim]
-            batch_size = x_all.size(0)
-            x_all, y = x_all.to(self.device), y.to(self.device)
-            # 1. 扁平化输入 [Batch * m, Dim]
-            x_flat = x_all.view(-1, x_all.size(-1))
+        for x, y in dataloader:
+            # x shape: [batch_size, input_dim]
+            # y shape: [batch_size]
+            batch_size = x.size(0)
+            x, y = x.to(self.device), y.to(self.device)
             # 2. 前向传播
-            logits_flat, proj_flat = self.model(x_flat)
-            # --- 扩展标签 ---
-            # y_expanded shape: [Batch * m]
-            # 例如 batch y=[0, 1], m=2 -> y_expanded=[0, 0, 1, 1]
-            y_expanded = y.repeat_interleave(m)
+            # 直接输入 x，不需要 view/flatten，因为已经是 [B, D]
+            logits, proj = self.model(x)
             # --- Loss 1: Cross Entropy (分类损失) ---
-            loss_ce = F.cross_entropy(logits_flat, y_expanded)
+            # 不需要 y.repeat_interleave，因为是一对一
+            loss_ce = F.cross_entropy(logits, y)
             # --- Loss 2: Supervised Contrastive Loss (有监督对比损失) ---
-            # A. 计算相似度矩阵 [BM, BM]
-            sim_matrix = torch.matmul(proj_flat, proj_flat.T) / self.kwargs['temperature']
-            # [数值稳定技巧] 减去每行的最大值，防止 exp 后溢出
+            # 这里的 batch 内所有样本互为对比对象
+            # A. 计算相似度矩阵 [B, B]
+            sim_matrix = torch.matmul(proj, proj.T) / self.kwargs['temperature']
+            # [数值稳定技巧] 减去每行的最大值
             sim_max, _ = torch.max(sim_matrix, dim=1, keepdim=True)
             sim_matrix = sim_matrix - sim_max.detach()
             # B. 构建有监督 Mask
             # 只要标签相同 (y_i == y_j) 即为正样本
-            # mask shape: [BM, BM]
-            mask = torch.eq(y_expanded.unsqueeze(0), y_expanded.unsqueeze(1)).float()
+            # mask shape: [B, B]
+            mask = torch.eq(y.unsqueeze(0), y.unsqueeze(1)).float()
             # C. 排除自身 (Diagonal)
-            # 自身与自身的对比不产生梯度，且会主导 loss，需剔除
             mask.fill_diagonal_(0)
             # D. 计算 Exp
             exp_sim = torch.exp(sim_matrix)
-            # 同样在 exp_sim 中剔除对角线（为了计算分母 sum(all_sim) 时不包含自身）
-            diag_mask = torch.eye(batch_size * m, device=self.device).bool()
+            # 剔除对角线
+            diag_mask = torch.eye(batch_size, device=self.device).bool()
             exp_sim = exp_sim.masked_fill(diag_mask, 0)
             # E. 计算 InfoNCE
             # 分子：所有同类样本（正样本）的 exp 之和
@@ -94,11 +90,10 @@ class CoMICERecommend(BaseRecommender):
             # 分母：所有样本（负样本+正样本，但不含自身）的 exp 之和
             all_sim = exp_sim.sum(dim=1)
             # 计算 Log Probability
-            # 加 eps 防止 log(0)
             eps = 1e-8
-            # 这里的逻辑是：log(Sum_Pos / Sum_All)
-            # 注意：如果某样本在 Batch 里没有同类（mask行为全0），pos_sim 为 0，这会导致 loss 极大。
-            # 为了稳健性，可以只对“有正样本”的行计算 loss，或者加上 eps
+            # 如果 batch 内没有同类样本，pos_sim 可能为 0，导致 log(0)。
+            # 实际上 SupCon Loss 通常只对有正样本的 anchor 计算 loss。
+            # 这里简单处理：加 eps
             log_prob = torch.log(pos_sim / (all_sim + eps) + eps)
             # loss_nce 取负均值
             loss_nce = -log_prob.mean()
@@ -117,16 +112,21 @@ class CoMICERecommend(BaseRecommender):
         if self.standard_bool:
             train_data = self._standardize(train_data, fit_bool=True)
         rng = np.random.default_rng(seed=self.seed)
-        rints = rng.choice(a=self.kwargs['m'] * 10, size=self.kwargs['m'], replace=False)
-        train_data_sets = []
-        for i in range(self.kwargs['m']):
-            data, imputer = filling(train_data, method=self.kwargs['mice_method'], seed=rints[i])
-            train_data_sets.append(data)
-            self.imputers.append(imputer)
+        seed_val = rng.choice(1000)  # 只取一个随机种子
+        # 单次 MICE 插补
+        data_imputed, self.imputer = filling(train_data, method=self.kwargs['mice_method'], seed=seed_val)
+        # CRITICAL: 训练数据也需要 round，以匹配 Embedding 索引
+        # 假设 sparse_features 在 data_imputed 中是数值型，需要取整
+        # 注意：process_mice_list 内部可能没有 round，所以这里最好显式处理或者确认 process_mice_list 的逻辑
+        # 这里为了稳健，假设 filling 返回的是 float
+        data_imputed[self.sparse_features] = round(data_imputed[self.sparse_features])
         dense_count = len(self.dense_features)
         sparse_dims = [self.vocabulary_sizes[col] for col in self.sparse_features]
-        # 处理成 [N, M, D] 的张量
-        x_train_tensor, y_train_tensor = process_mice_list(train_data_sets, self.user_name, self.item_name)
+        # process_mice_list 通常接受列表，返回 [N, m, d]。这里传入长度为1的列表
+        x_train_tensor, y_train_tensor = process_mice_list([data_imputed], self.user_name, self.item_name)
+        # 压缩 m 维度: [N, 1, d] -> [N, d]
+        if x_train_tensor.dim() == 3:
+            x_train_tensor = x_train_tensor.squeeze(1)
         train_loader = DataLoader(
             RecDataset(x_train_tensor, y_train_tensor),
             batch_size=self.kwargs['batch_size'],
@@ -139,22 +139,16 @@ class CoMICERecommend(BaseRecommender):
         self.is_trained = True
     # %%
     def get_proba(self, test_data: pd.DataFrame):
-        # 1. 基础预处理
         test_data = self._mapping(test_data, fit_bool=False)
         if self.standard_bool:
             test_data = self._standardize(test_data, fit_bool=False)
-        # 2. 生成多视角插补数据 (Multiple Imputation)
-        # 遍历训练时拟合好的所有 imputer，生成 m 个版本的测试集
-        test_data_sets = []
-        for imputer in self.imputers:
-            # 使用训练好的 imputer 转换测试数据
-            data = imputer.transform(test_data)
-            # CRITICAL: 必须进行 round 操作，确保浮点数转为与训练一致的整数索引
-            data = round(data)
-            test_data_sets.append(data)
-        # 3. 转换为 Tensor [N, m, d]
-        # process_mice_list 会将列表堆叠为 [N, m, d] 的形状
-        x_test_tensor, y_test_tensor = process_mice_list(test_data_sets, self.user_name, self.item_name)
+        # 单次插补
+        data = self.imputer.transform(test_data)
+        data = round(data)  # CRITICAL: 保持与训练一致
+        x_test_tensor, y_test_tensor = process_mice_list([data], self.user_name, self.item_name)
+        # 压缩 m 维度: [N, 1, d] -> [N, d]
+        if x_test_tensor.dim() == 3:
+            x_test_tensor = x_test_tensor.squeeze(1)
         test_loader = DataLoader(
             RecDataset(x_test_tensor, y_test_tensor),
             batch_size=self.kwargs['batch_size'],
@@ -163,39 +157,26 @@ class CoMICERecommend(BaseRecommender):
         self.model.eval()
         all_scores = []
         with torch.no_grad():
-            for x_all, _ in test_loader:
-                x_all = x_all.to(self.device)
-                # x_all shape: [batch_size, m, d]
-                batch_size, m, d = x_all.shape
-                # 4. 扁平化以进行批量推理
-                x_flat = x_all.view(-1, d)  # [batch_size * m, d]
-                # 前向传播
-                logits, _ = self.model(x_flat)  # logits: [batch_size * m, num_classes]
-                # 5. 计算概率 (Softmax)
-                probs_flat = torch.softmax(logits, dim=1)
-                # 6. 聚合多视角结果 (Ensemble / Soft Voting)
-                # 将形状还原为 [batch_size, m, num_classes]
-                probs_view = probs_flat.view(batch_size, m, -1)
-                # 在 m 维度取平均值，得到该 batch 每个样本的最终概率
-                # shape: [batch_size, num_classes]
-                probs_mean = probs_view.mean(dim=1)
-                all_scores.append(probs_mean.cpu().numpy())
+            for x, _ in test_loader:
+                x = x.to(self.device)
+                # x shape: [B, d]
+                logits, _ = self.model(x)
+                probs = torch.softmax(logits, dim=1)
+                all_scores.append(probs.cpu().numpy())
+
         final_scores = np.concatenate(all_scores, axis=0)
         return pd.DataFrame(final_scores, index=test_data.index, columns=self.unique_item)
 # %%
 class RecDataset(Dataset):
     def __init__(self, X_imputed, y):
         """
-        X_imputed: Tensor of shape [N, m, d]
+        X_imputed: Tensor of shape [N, d] (Single View)
         y: Tensor of shape [N]
         """
         self.X = X_imputed
         self.y = y
-        self.N, self.m, self.d = X_imputed.shape
+        self.N = X_imputed.shape[0]
     def __len__(self):
         return self.N
     def __getitem__(self, idx):
-        # 无论 train 还是 eval，现在都返回该样本的所有 m 个插补视角
-        x_all = self.X[idx, :, :]  # [m, d]
-        label = self.y[idx]
-        return x_all, label
+        return self.X[idx], self.y[idx]
