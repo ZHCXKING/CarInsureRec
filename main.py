@@ -40,9 +40,9 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
     df_copy[feature_cols] = data
     return df_copy
 #%%
-m = 3
+m = 1
 k = 3
-train, test = load('dropna', amount=None, split_num=1000) #original, dropna
+train, test = load('dropna', amount=None, split_num=200) #original, dropna
 #train, test, _ = split_filling(train, test, method='iterative_SVM', seed=42)
 user_name = ['Age', 'DrivingExp', 'Occupation', 'NCD', 'Make', 'Car.year', 'Car.price']
 item_name = 'InsCov'
@@ -53,9 +53,9 @@ score = []
 for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
     train_miss = add_missing_values(train, missing_rate, feature_cols=user_name, seed=42)
     test_miss = add_missing_values(test, missing_rate, feature_cols=user_name, seed=42)
-    model = CoMICERecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
+    model = DCNv2Recommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
     model.fit(train_miss)
-    score.append(model.score_test(test_miss, method='recall_k'))
+    score.append(model.score_test(test_miss, method='auc'))
 print(score)
 # train_data_sets, test_data_sets, _ = mice_samples(train, test, method='iterative_NB', m=m, seed=42)
 # all_test_probs = []

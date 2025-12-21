@@ -40,10 +40,10 @@ class NetworkRecommender(BaseRecommender):
             'lr': 1e-4,
             'batch_size': 256,
             'feature_dim': 64,
-            'epochs': 250,
+            'epochs': 500,
             'hidden_units': [256, 128],
             'cross_layers': 3,
-            'mice_method': 'iterative_Ga'
+            'mice_method': 'MICE_RF'
         }
         self.kwargs.update(default_params)
         self.kwargs.update(kwargs)

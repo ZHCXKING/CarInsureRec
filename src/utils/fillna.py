@@ -8,18 +8,21 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import BayesianRidge
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.svm import LinearSVR
+from sklearn.impute import KNNImputer
 # %%
 def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42):
-    if method == 'iterative_RF':
+    if method == 'MICE_RF':
         imputer = IterativeImputer(estimator=RandomForestRegressor(random_state=seed), max_value=Max, min_value=Min, random_state=seed)
-    elif method == 'iterative_NB':
+    elif method == 'MICE_NB':
         imputer = IterativeImputer(estimator=BayesianRidge(), max_value=Max, min_value=Min, random_state=seed, sample_posterior=True)
-    elif method == 'iterative_Ga':
+    elif method == 'MICE_Ga':
         imputer = IterativeImputer(estimator=GaussianProcessRegressor(random_state=seed), max_value=Max, min_value=Min, random_state=seed, sample_posterior=True)
-    elif method == 'iterative_SVM':
+    elif method == 'MICE_SVM':
         imputer = IterativeImputer(estimator=LinearSVR(random_state=seed), max_value=Max, min_value=Min, random_state=seed)
+    elif method == 'KNN':
+        imputer = KNNImputer(n_neighbors=5)
     else:
-        raise ValueError('method must be iterative_RF, iterative_NB, iterative_Ga, iterative_SVM')
+        raise ValueError('method must be MICE_RF, MICE_NB, MICE_Ga, MICE_SVM, KNN')
     imputer.set_output(transform='pandas')
     return imputer
 # %%

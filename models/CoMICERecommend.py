@@ -16,16 +16,15 @@ class CoMICERecommend(BaseRecommender):
             raise ValueError('user_name and item_name are required')
         super().__init__('CoMICE', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
-            'm': 5,
+            'm': 3,
             'lr': 1e-4,
             'batch_size': 256,
             'feature_dim': 64,
-            'proj_dim': 32,
-            'epochs': 250,
+            'proj_dim': 64,
+            'epochs': 500,
             'lambda_nce': 1.0,
             'temperature': 0.1,
-            'alpha': 1.0,
-            'mice_method': 'iterative_Ga',
+            'mice_method': 'MICE_RF',
             'backbone': 'DCNv2',
             'cross_layers': 3,
             'hidden_units': [256, 128]
@@ -68,7 +67,7 @@ class CoMICERecommend(BaseRecommender):
             # 1. 分类损失 (Cross Entropy): 计算所有 m 个视角的平均损失
             # y 需要扩展以匹配 logits_flat
             y_expanded = y.repeat_interleave(m)
-            loss_ce = F.cross_entropy(logits_flat, y_expanded, label_smoothing=0.1)
+            loss_ce = F.cross_entropy(logits_flat, y_expanded)
             # 2. 对比损失 (Multi-view InfoNCE)
             # proj_flat shape: [batch_size * m, proj_dim]
             # 计算特征相似度矩阵 [BM, BM]
@@ -130,10 +129,9 @@ class CoMICERecommend(BaseRecommender):
         if self.standard_bool:
             test_data = self._standardize(test_data, fit_bool=False)
         test_data_sets = []
-        for i in range(self.kwargs['m']):
-            data = self.imputers[i].transform(test_data)
-            data = round(data)
-            test_data_sets.append(data)
+        data = self.imputers[0].transform(test_data)
+        data = round(data)
+        test_data_sets.append(data)
         x_test_tensor, y_test_tensor = process_mice_list(test_data_sets, self.user_name, self.item_name)
         test_loader = DataLoader(
             RecDataset(x_test_tensor, y_test_tensor),
@@ -148,12 +146,8 @@ class CoMICERecommend(BaseRecommender):
                 batch_size, m, d = x_all.shape
                 x_flat = x_all.view(-1, d)
                 logits, _ = self.model(x_flat)
-                logits = logits.view(batch_size, m, -1)
-                mean_logits = logits.mean(dim=1)
-                var_logits = logits.var(dim=1, unbiased=False)
-                # 风险敏感评分公式
-                risk_scores = mean_logits / (1.0 + self.kwargs['alpha'] * var_logits)
-                all_scores.append(risk_scores.cpu().numpy())
+                probs = torch.softmax(logits, dim=1)
+                all_scores.append(probs.cpu().numpy())
         final_scores = np.concatenate(all_scores, axis=0)
         return pd.DataFrame(final_scores, index=test_data.index, columns=self.unique_item)
 # %%

@@ -56,16 +56,24 @@ class BaseRecommender:
         return topk_item
     # %%
     def score_test(self, test_data: pd.DataFrame, method: str = 'mrr'):
+        score = None
         item = test_data[self.item_name]
-        topk_item = self.recommend(test_data)
-        if method == 'mrr_k':
-            score = mrr_k(item, topk_item, self.k)
-        elif method == 'recall_k':
-            score = recall_k(item, topk_item, self.k)
-        elif method == 'ndcg_k':
-            score = ndcg_k(item, topk_item, self.k)
+        if method in ['auc', 'logloss']:
+            all_proba = self.get_proba(test_data)
+            if method == 'auc':
+                score = auc(item, all_proba, self.unique_item)
+            elif method == 'logloss':
+                score = logloss(item, all_proba, self.unique_item)
         else:
-            raise ValueError('method is not supported')
+            topk_item = self.recommend(test_data)
+            if method == 'mrr_k':
+                score = mrr_k(item, topk_item, self.k)
+            elif method == 'recall_k':
+                score = recall_k(item, topk_item, self.k)
+            elif method == 'ndcg_k':
+                score = ndcg_k(item, topk_item, self.k)
+            else:
+                raise ValueError('method is not supported')
         return score
     # %%
     def _standardize(self, data: pd.DataFrame, fit_bool: bool):

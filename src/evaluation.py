@@ -1,6 +1,7 @@
 # %%
 import pandas as pd
 import numpy as np
+from sklearn.metrics import log_loss, roc_auc_score
 # %%
 def mrr_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
     reciprocal_ranks = []
@@ -36,3 +37,15 @@ def ndcg_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
                 break
         ndcg_scores.append(ndcg)
     return np.mean(ndcg_scores)
+# %%
+def auc(item: pd.Series, all_proba: pd.DataFrame, classes):
+    y_true = item.values
+    y_score = all_proba[classes].values
+    roc_auc = roc_auc_score(y_true, y_score, multi_class='ovr', labels=classes)
+    return roc_auc
+# %%
+def logloss(item: pd.Series, all_proba: pd.DataFrame, classes):
+    y_true = item.values
+    y_score = all_proba[classes].values
+    logloss = log_loss(y_true, y_score, labels=classes)
+    return logloss
