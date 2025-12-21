@@ -38,12 +38,12 @@ class NetworkRecommender(BaseRecommender):
         self.backbone_class = backbone_class
         default_params = {
             'lr': 1e-4,
-            'batch_size': 256,
+            'batch_size': 128,
             'feature_dim': 64,
-            'epochs': 500,
+            'epochs': 200,
             'hidden_units': [256, 128],
             'cross_layers': 3,
-            'mice_method': 'MICE_RF'
+            'mice_method': 'MICE_Ga'
         }
         self.kwargs.update(default_params)
         self.kwargs.update(kwargs)

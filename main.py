@@ -42,7 +42,7 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
 #%%
 m = 1
 k = 3
-train, test = load('dropna', amount=None, split_num=200) #original, dropna
+train, test = load('dropna', amount=None, split_num=1000) #original, dropna
 #train, test, _ = split_filling(train, test, method='iterative_SVM', seed=42)
 user_name = ['Age', 'DrivingExp', 'Occupation', 'NCD', 'Make', 'Car.year', 'Car.price']
 item_name = 'InsCov'
@@ -50,24 +50,14 @@ date_name = 'Date'
 sparse_features = ['Occupation', 'NCD', 'Make']
 dense_features = ['Age', 'Car.year', 'Car.price', 'DrivingExp']
 score = []
-for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
-    train_miss = add_missing_values(train, missing_rate, feature_cols=user_name, seed=42)
-    test_miss = add_missing_values(test, missing_rate, feature_cols=user_name, seed=42)
-    model = DCNv2Recommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
-    model.fit(train_miss)
-    score.append(model.score_test(test_miss, method='auc'))
+model = XGBRecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
+model.fit(train)
+score.append(model.score_test(test, method='auc'))
 print(score)
-# train_data_sets, test_data_sets, _ = mice_samples(train, test, method='iterative_NB', m=m, seed=42)
-# all_test_probs = []
-# for i in range(m):
-#     model = CoMICERecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k)
-#     model.fit(train_data_sets[i])
-#     print(model.score_test(test_data_sets[i], method='recall_k'))
-#     proba = model.get_proba(test_data_sets[i])
-#     all_test_probs.append(proba)
-# results = np.mean(all_test_probs, axis=0)
-# results = pd.DataFrame(results, index=test.index)
-# topk_item = results.apply(lambda row: row.nlargest(k).index.tolist(), axis=1)
-# topk_item = pd.DataFrame(topk_item.tolist(), columns=[f'top{i + 1}' for i in range(k)])
-# score = recall_k(test[item_name], topk_item, k=k)
+# for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+#     train_miss = add_missing_values(train, missing_rate, feature_cols=user_name, seed=42)
+#     test_miss = add_missing_values(test, missing_rate, feature_cols=user_name, seed=42)
+#     model = CoMICERecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
+#     model.fit(train_miss)
+#     score.append(model.score_test(test_miss, method='auc'))
 # print(score)

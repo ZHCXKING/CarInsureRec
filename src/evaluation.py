@@ -41,7 +41,7 @@ def ndcg_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
 def auc(item: pd.Series, all_proba: pd.DataFrame, classes):
     y_true = item.values
     y_score = all_proba[classes].values
-    roc_auc = roc_auc_score(y_true, y_score, multi_class='ovr', labels=classes)
+    roc_auc = roc_auc_score(y_true, y_score, multi_class='ovo', labels=classes)
     return roc_auc
 # %%
 def logloss(item: pd.Series, all_proba: pd.DataFrame, classes):

@@ -16,38 +16,63 @@ def set_seed(seed: int):
     torch.backends.cudnn.benchmark = False
 # %%
 class CoMICEHead(nn.Module):
-    """
-    CoMICE 的核心热插拔头。
-    输入: Backbone 提取的特征向量 [Batch, input_dim]
-    输出: (Logits, Normalized_Projection)
-    """
-    def __init__(self, input_dim, num_classes, proj_dim=128):
+    def __init__(self, input_dim, num_classes, proj_dim=128, hidden_dim=256, dropout_rate=0.1):
         super().__init__()
-        # 1. 投影头 (Projection Head) -> 用于 InfoNCE Loss
+        # 1. 投影头 (Projection Head) - SimCLR v2 风格
+        # 保持中间层维度较大，用于提取丰富的语义信息
         self.projection_head = nn.Sequential(
-            nn.Linear(input_dim, proj_dim),
-            nn.BatchNorm1d(proj_dim),
-            nn.ReLU(),
-            nn.Linear(proj_dim, proj_dim)
+            nn.Linear(input_dim, input_dim),  # 第一层保持维度
+            nn.BatchNorm1d(input_dim),
+            nn.ReLU(),  # 使用 GELU 替代 ReLU
+            nn.Dropout(dropout_rate),
+            nn.Linear(input_dim, proj_dim)  # 投影到低维空间计算 Contrastive Loss
         )
-        # 2. 门控机制 (Gating Mechanism) -> 利用对比学习结果去噪
-        # 输入 proj_dim, 输出 input_dim 的权重
-        self.gate_layer = nn.Sequential(
-            nn.Linear(proj_dim, input_dim),
+        # 2. 门控/校准机制 (Calibration/Gating)
+        # 优化点：从 proj_dim 恢复到 input_dim 时增加非线性，防止信息过分压缩
+        self.gate_mlp = nn.Sequential(
+            nn.Linear(proj_dim, input_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(input_dim // 2, input_dim),
             nn.Sigmoid()
         )
-        # 3. 分类头 (Classifier Head) -> 用于 CE Loss / TopK Loss
-        self.classifier_head = nn.Linear(input_dim, num_classes)
-    # %%
+        # 3. 分类头 (Classifier Head)
+        # 优化点：使用 MLP 而不是单层 Linear
+        self.classifier_head = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim, num_classes)
+        )
+        # 初始化权重
+        self.apply(self._init_weights)
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_uniform_(m.weight)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
     def forward(self, feature_vector):
-        # A. 生成稳健特征 (for Contrastive Learning)
+        """
+        feature_vector: [Batch, input_dim]
+        """
+        # A. 投影 (Projection)
+        # proj_feat 用于生成 Gate，保留了幅值信息
         proj_feat = self.projection_head(feature_vector)
+        # proj_norm 用于计算 InfoNCE Loss (Cosine Similarity)
         proj_norm = F.normalize(proj_feat, dim=1)
-        # B. 特征校准 (Gating)
-        # 利用稳健特征决定原始特征中哪些是噪声
-        gate = self.gate_layer(proj_feat)
-        feat_calibrated = feature_vector * gate
-        # C. 生成最终分类 Logits
+        # B. 特征校准 (Feature Calibration with Residual)
+        # 1. 计算注意力权重/门控
+        gate = self.gate_mlp(proj_feat)
+        # 2. 关键优化：残差连接 (Residual Connection)
+        # 原始逻辑: feat * gate (过滤)
+        # 优化逻辑: feature_vector + (feature_vector * gate) (增强/修正)
+        # 或者使用类似 SE-Block 的 scale: feature_vector * (1 + gate)
+        # 这里我们采用 Re-weighting 的形式，假设 gate 是特征的重要性分数
+        # 但为了训练稳定性，更推荐 Residual 形式：
+        # 如果 gate 趋向于 0，意味着对比特征认为不需要额外修正，保留原始特征
+        feat_calibrated = feature_vector * (1 + gate)
+        # C. 分类
         logits = self.classifier_head(feat_calibrated)
         return logits, proj_norm
 # %%
