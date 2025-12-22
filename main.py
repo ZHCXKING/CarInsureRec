@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from src.utils import load
-from src.utils import filling, split_filling, mice_samples
+from src.utils import filling
 from models import *
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.ensemble import RandomForestRegressor
@@ -25,7 +25,7 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
     if feature_cols is None:
         feature_cols = df_copy.columns.tolist()
     # 获取特征数据矩阵
-    data = df_copy[feature_cols].values
+    data = df_copy[feature_cols].values.astype(float)
     n_rows, n_cols = data.shape
     # 设置随机种子
     rng = np.random.default_rng(seed)
@@ -42,23 +42,21 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
 #%%
 m = 1
 k = 3
-train, test = load('original', amount=None, split_num=1000) #original, dropna
-print(train['NCD'].unique())
+train, test, info = load('AWM', amount=2000, split_num=1000) #original, dropna
 #train, test, _ = split_filling(train, test, method='iterative_SVM', seed=42)
-user_name = ['Age', 'DrivingExp', 'Occupation', 'NCD', 'Make', 'Car.year', 'Car.price']
-item_name = 'InsCov'
-date_name = 'Date'
-sparse_features = ['Occupation', 'NCD', 'Make']
-dense_features = ['Age', 'Car.year', 'Car.price', 'DrivingExp']
+item_name = info['item_name']
+sparse_features = info['sparse_features']
+dense_features = info['dense_features']
 score = []
-model = DeepFMRecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
+train = add_missing_values(train, 0.1, feature_cols=sparse_features+dense_features, seed=42)
+model = DeepFMRecommend(item_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
 model.fit(train)
 score.append(model.score_test(test, method='auc'))
 print(score)
 # for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
 #     train_miss = add_missing_values(train, missing_rate, feature_cols=user_name, seed=42)
 #     test_miss = add_missing_values(test, missing_rate, feature_cols=user_name, seed=42)
-#     model = CoMICERecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
+#     model = CoMICERecommend(user_name, item_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
 #     model.fit(train_miss)
 #     score.append(model.score_test(test_miss, method='auc'))
 # print(score)

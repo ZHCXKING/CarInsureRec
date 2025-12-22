@@ -3,20 +3,19 @@ from sklearn.preprocessing import StandardScaler
 from src.evaluation import *
 # %%
 class BaseRecommender:
-    def __init__(self, model_name: str, user_name: list, item_name: str, date_name: str | None,
-                 sparse_features: list | None, dense_features: list | None, standard_bool: bool,
-                 seed: int, k: int):
+    def __init__(self, model_name: str, item_name: str, sparse_features: list, dense_features: list,
+                 standard_bool: bool, seed: int, k: int):
         self.model_name = model_name
         self.model = None
         self.kwargs = dict()
-        self.user_name = user_name
+        self.user_name = sparse_features + dense_features
         self.item_name = item_name
-        self.date_name = date_name
         self.sparse_features = sparse_features
         self.dense_features = dense_features
         self.standard_bool = standard_bool
         self.mapping = {}
         self.vocabulary_sizes = {}
+        self.scaler = None
         self.seed = seed
         self.k = k
         self.unique_item = None

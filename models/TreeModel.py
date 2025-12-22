@@ -7,12 +7,9 @@ from catboost import CatBoostClassifier
 from sklearn.ensemble import RandomForestClassifier
 # %%
 class XGBRecommend(BaseRecommender):
-    def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
-                 sparse_features: list | None = None, dense_features: list | None = None, standard_bool: bool = False,
-                 seed: int = 42, k: int = 3, **kwargs):
-        if (user_name is None) or (item_name is None):
-            raise ValueError('user_name and item_name are required')
-        super().__init__('XGBoost', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
+    def __init__(self, item_name: str, sparse_features: list, dense_features: list,
+                 standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
+        super().__init__('XGBoost', item_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'n_estimators': None,
             'learning_rate': None,
@@ -28,12 +25,9 @@ class XGBRecommend(BaseRecommender):
         self.model = XGBClassifier(**model_params)
 # %%
 class LGBMRecommend(BaseRecommender):
-    def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
-                 sparse_features: list | None = None, dense_features: list | None = None, standard_bool: bool = False,
-                 seed: int = 42, k: int = 3, **kwargs):
-        if (user_name is None) or (item_name is None):
-            raise ValueError('user_name and item_name are required')
-        super().__init__('LightGBM', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
+    def __init__(self, item_name: str, sparse_features: list, dense_features: list,
+                 standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
+        super().__init__('LightGBM', item_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'learning_rate': 0.1,
             'n_estimators': 100,
@@ -49,14 +43,11 @@ class LGBMRecommend(BaseRecommender):
         self.model = LGBMClassifier(**model_params)
 # %%
 class CatBRecommend(BaseRecommender):
-    def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
-                 sparse_features: list | None = None, dense_features: list | None = None, standard_bool: bool = False,
-                 seed: int = 42, k: int = 3, **kwargs):
-        if (user_name is None) or (item_name is None):
-            raise ValueError('user_name and item_name are required')
-        super().__init__('XGBoost', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
+    def __init__(self, item_name: str, sparse_features: list, dense_features: list,
+                 standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
+        super().__init__('CatBoost', item_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
-            'iterations': None,
+            'iterations': 200,
             'learning_rate': None,
             'depth': None,
             'allow_writing_files': False,
@@ -92,12 +83,9 @@ class CatBRecommend(BaseRecommender):
         return result
 # %%
 class RFRecommend(BaseRecommender):
-    def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
-                 sparse_features: list | None = None, dense_features: list | None = None, standard_bool: bool = False,
-                 seed: int = 42, k: int = 3, **kwargs):
-        if (user_name is None) or (item_name is None):
-            raise ValueError('user_name and item_name are required')
-        super().__init__('RF', user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
+    def __init__(self, item_name: str, sparse_features: list, dense_features: list,
+                 standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
+        super().__init__('RF', item_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'n_estimators': 100,
             'criterion': 'gini',

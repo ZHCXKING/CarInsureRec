@@ -1,6 +1,6 @@
 # %%
+import json
 import pandas as pd
-from sdv.utils import load_synthesizer
 from pathlib import Path
 # %%
 def _filter_data(df: pd.DataFrame, target_name: str, min_count=2):
@@ -24,23 +24,36 @@ def _split_guaranteed(df: pd.DataFrame, target_name: str, split_num: int, seed: 
     final_test_idx = df[test_mask].index.union(rest_indices[n_needed:])
     return df.loc[final_train_idx], df.loc[final_test_idx]
 # %%
-def load(data_type: str = 'test',
+def _detail_info(path):
+    with open(path, 'r') as f:
+        metadata = json.load(f)
+    columns = metadata['tables']['table']['columns']
+    item_name = 'product_item'
+    sparse_features = []
+    dense_features = []
+    for col, info in columns.items():
+        if col == item_name:
+            continue
+        if info['sdtype'] == 'categorical':
+            sparse_features.append(col)
+        elif info['sdtype'] == 'numerical':
+            dense_features.append(col)
+    return {
+        'item_name': item_name,
+        'sparse_features': sparse_features,
+        'dense_features': dense_features
+    }
+# %%
+def load(data_type: str = 'AWM',
          amount: int | None = None,
          split_num: int | None = None,
-         target_name: str = 'InsCov',
+         target_name: str = 'product_item',
          seed: int = 42):
     root = Path(__file__).parents[2]
-    if data_type == 'original':
-        data = pd.read_excel(root / 'data' / 'AWM' /'All Data.xlsx', sheet_name='coding', nrows=amount)
-    elif data_type == 'dropna':
-        data = pd.read_excel(root / 'data' / 'AWM' / 'All Data.xlsx', sheet_name='dropping', nrows=amount)
-    elif data_type == 'synthetic':
-        if amount is None:
-            raise ValueError('When loading synthetic data, amount cannot be None.')
-        synthesizer = load_synthesizer(filepath=root / 'data' / 'synthesizer.pkl')
-        data = synthesizer.sample(num_rows=amount)
-    else:
-        raise ValueError('data_type must be original, synthetic and dropna.')
+    data_path = root / 'data' / data_type / 'All Data.xlsx'
+    detail_path = root / 'data' / data_type / 'Metadata.json'
+    data = pd.read_excel(data_path, sheet_name='coding', nrows=amount)
+    info = _detail_info(detail_path)
     data = _filter_data(data, target_name)
     if split_num is not None:
         if split_num > data.shape[0]:
@@ -48,7 +61,7 @@ def load(data_type: str = 'test',
         train_data, test_data = _split_guaranteed(data, target_name, split_num, seed)
         train_data = train_data.reset_index(drop=True)
         test_data = test_data.reset_index(drop=True)
-        return train_data, test_data
+        return train_data, test_data, info
     else:
         data = data.reset_index(drop=True)
-        return data
+        return data, info

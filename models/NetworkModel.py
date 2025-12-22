@@ -17,6 +17,7 @@ class StandardModel(nn.Module):
         features = self.backbone(x)
         logits = self.classifier_head(features)
         return logits
+# %%
 class StandardDataset(Dataset):
     def __init__(self, X, y):
         self.X = X
@@ -28,13 +29,9 @@ class StandardDataset(Dataset):
         return self.X[idx], self.y[idx]
 # %%
 class NetworkRecommender(BaseRecommender):
-    def __init__(self, model_name: str, backbone_class, user_name: list, item_name: str,
-                 date_name: str | None = None, sparse_features: list | None = None,
-                 dense_features: list | None = None, standard_bool: bool = False,
-                 seed: int = 42, k: int = 3, **kwargs):
-        if (user_name is None) or (item_name is None):
-            raise ValueError('user_name and item_name are required')
-        super().__init__(model_name, user_name, item_name, date_name, sparse_features, dense_features, standard_bool, seed, k)
+    def __init__(self, model_name: str, backbone_class, item_name: str, sparse_features: list, dense_features: list,
+                 standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
+        super().__init__(model_name, item_name, sparse_features, dense_features, standard_bool, seed, k)
         self.backbone_class = backbone_class
         default_params = {
             'lr': 1e-4,
@@ -74,33 +71,25 @@ class NetworkRecommender(BaseRecommender):
     def fit(self, train_data: pd.DataFrame):
         self.out_dim = train_data[self.item_name].nunique()
         self.unique_item = list(range(self.out_dim))
-        # 1. 映射和标准化
+        train_data, self.imputer = filling(train_data, method=self.kwargs['mice_method'], seed=self.seed)
+        train_data = round(train_data, self.sparse_features)
         train_data = self._mapping(train_data, fit_bool=True)
         if self.standard_bool:
             train_data = self._standardize(train_data, fit_bool=True)
-        rng = np.random.default_rng(seed=self.seed)
-        seed_val = rng.choice(1000)
-        # 2. 插补 (filling 包含 round)
-        data_imputed, self.imputer = filling(train_data, method=self.kwargs['mice_method'], seed=seed_val)
         dense_count = len(self.dense_features)
         sparse_dims = [self.vocabulary_sizes[col] for col in self.sparse_features]
-        # 3. 手动转换为 Tensor (替代 process_mice_list)
-        # 提取特征
-        X_df = data_imputed[self.user_name]
-        x_train = torch.tensor(X_df.values, dtype=torch.float32)
-        # 提取标签
-        y_df = data_imputed[self.item_name]
-        y_train = torch.tensor(y_df.values, dtype=torch.long)
-        # 4. 创建 DataLoader
+        X_df = train_data[self.user_name]
+        x_train_tensor = torch.tensor(X_df.values, dtype=torch.float32)
+        y_df = train_data[self.item_name]
+        y_train_tensor = torch.tensor(y_df.values, dtype=torch.long)
         train_loader = DataLoader(
-            StandardDataset(x_train, y_train),
+            StandardDataset(x_train_tensor, y_train_tensor),
             batch_size=self.kwargs['batch_size'],
             shuffle=True
         )
         self.model = self._build_model(sparse_dims, dense_count, self.out_dim)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.kwargs['lr'])
         criterion = nn.CrossEntropyLoss()
-        # 5. 训练
         for epoch in range(self.kwargs['epochs']):
             self.model.train()
             total_loss = 0.0
@@ -112,30 +101,23 @@ class NetworkRecommender(BaseRecommender):
                 loss.backward()
                 self.optimizer.step()
                 total_loss += loss.item()
-            if (epoch + 1) % 10 == 0:
-                print(f"Epoch {epoch + 1}: Loss {total_loss / len(train_loader):.4f}")
+            print(f"Epoch {epoch + 1}: Loss {total_loss / len(train_loader):.4f}")
         self.is_trained = True
     # %%
     def get_proba(self, test_data: pd.DataFrame):
         if not self.is_trained:
             raise ValueError('model is not trained')
+        test_data = self.imputer.transform(test_data)
+        test_data = round(test_data, self.sparse_features)
         test_data = self._mapping(test_data, fit_bool=False)
         if self.standard_bool:
             test_data = self._standardize(test_data, fit_bool=False)
-        # 1. 插补
-        data_imputed = self.imputer.transform(test_data)
-        # 2. 取整 (显式调用)
-        data_imputed = round(data_imputed)
-        # 3. 手动转换为 Tensor (替代 process_mice_list)
-        X_df = data_imputed[self.user_name]
-        x_test = torch.tensor(X_df.values, dtype=torch.float32)
-        # 处理标签 (如果有的话，没有则 dummy)
-        if self.item_name in data_imputed.columns:
-            y_test = torch.tensor(data_imputed[self.item_name].values, dtype=torch.long)
-        else:
-            y_test = torch.zeros(len(x_test), dtype=torch.long)
+        X_df = test_data[self.user_name]
+        x_test_tensor = torch.tensor(X_df.values, dtype=torch.float32)
+        y_df = test_data[self.item_name]
+        y_test_tensor = torch.tensor(y_df.values, dtype=torch.long)
         test_loader = DataLoader(
-            StandardDataset(x_test, y_test),
+            StandardDataset(x_test_tensor, y_test_tensor),
             batch_size=self.kwargs['batch_size'],
             shuffle=False
         )
@@ -145,29 +127,23 @@ class NetworkRecommender(BaseRecommender):
             for x, _ in test_loader:
                 x = x.to(self.device)
                 logits = self.model(x)
-                probs = torch.softmax(logits, dim=1).cpu().numpy()
-                all_probs.append(probs)
+                probs = torch.softmax(logits, dim=1)
+                all_probs.append(probs.cpu().numpy())
         final_probs = np.concatenate(all_probs, axis=0)
         result = pd.DataFrame(final_probs, index=test_data.index, columns=self.unique_item)
         return result
 # %%
 class DCNv2Recommend(NetworkRecommender):
-    def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
-                 sparse_features: list | None = None, dense_features: list | None = None,
-                 standard_bool: bool = False, seed: int = 42, k: int = 3, **kwargs):
-        super().__init__('DCNv2', DCNv2Backbone, user_name, item_name, date_name,
-                         sparse_features, dense_features, standard_bool, seed, k, **kwargs)
+    def __init__(self, item_name: str, sparse_features: list, dense_features: list,
+                 standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
+        super().__init__('DCNv2', DCNv2Backbone, item_name, sparse_features, dense_features, standard_bool, seed, k, **kwargs)
 # %%
 class DeepFMRecommend(NetworkRecommender):
-    def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
-                 sparse_features: list | None = None, dense_features: list | None = None,
-                 standard_bool: bool = False, seed: int = 42, k: int = 3, **kwargs):
-        super().__init__('DeepFM', DeepFMBackbone, user_name, item_name, date_name,
-                         sparse_features, dense_features, standard_bool, seed, k, **kwargs)
+    def __init__(self, item_name: str, sparse_features: list, dense_features: list,
+                 standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
+        super().__init__('DeepFM', DeepFMBackbone, item_name, sparse_features, dense_features, standard_bool, seed, k, **kwargs)
 # %%
 class WideDeepRecommend(NetworkRecommender):
-    def __init__(self, user_name: list, item_name: str, date_name: str | None = None,
-                 sparse_features: list | None = None, dense_features: list | None = None,
-                 standard_bool: bool = False, seed: int = 42, k: int = 3, **kwargs):
-        super().__init__('WideDeep', WideDeepBackbone, user_name, item_name, date_name,
-                         sparse_features, dense_features, standard_bool, seed, k, **kwargs)
+    def __init__(self, item_name: str, sparse_features: list, dense_features: list,
+                 standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
+        super().__init__('WideDeep', WideDeepBackbone, item_name, sparse_features, dense_features, standard_bool, seed, k, **kwargs)
