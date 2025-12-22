@@ -304,5 +304,7 @@ class RecDataset(Dataset):
         self.X = X
         self.y = y
         self.N = X.shape[0]
-    def __len__(self): return self.N
-    def __getitem__(self, idx): return self.X[idx], self.y[idx]
+    def __len__(self):
+        return self.N
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]

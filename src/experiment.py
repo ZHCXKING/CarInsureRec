@@ -16,14 +16,14 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
     data[mask] = np.nan
     df_copy[feature_cols] = data
     return df_copy
+# train = add_missing_values(train, 0.1, feature_cols=sparse_features + dense_features, seed=42)
+# test = add_missing_values(test, 0.1, feature_cols=sparse_features + dense_features, seed=42)
 # %%
 def test_seeds(data_type: str, amount: int, split_num: int, times: int, model_name: str, k: int):
     train, test, info = load(data_type, amount, split_num)
     item_name = info['item_name']
     sparse_features = info['sparse_features']
     dense_features = info['dense_features']
-    # train = add_missing_values(train, 0.1, feature_cols=sparse_features + dense_features, seed=42)
-    # test = add_missing_values(test, 0.1, feature_cols=sparse_features + dense_features, seed=42)
     score = []
     CoMICE_score = []
     for i in range(times):
