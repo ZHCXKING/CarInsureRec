@@ -23,7 +23,6 @@ class CoMICERecommend(BaseRecommender):
             'mice_method': 'MICE_RF',
             'cross_layers': 3,
             'hidden_units': [256, 128],
-            'use_attention': True,
             'dropout': 0.1
         }
         self.kwargs.update(default_params)
@@ -39,9 +38,7 @@ class CoMICERecommend(BaseRecommender):
             'hidden_units': self.kwargs['hidden_units'],
             'dropout': self.kwargs['dropout']
         }
-        backbone = HybridBackbone(cross_layers=self.kwargs['cross_layers'],
-                                  use_attention=self.kwargs['use_attention'],
-                                  **common_args)
+        backbone = HybridBackbone(cross_layers=self.kwargs['cross_layers'], **common_args)
         head = CoMICEHead(backbone.output_dim, num_classes, proj_dim=self.kwargs['proj_dim'])
         return CoMICEModel(backbone, head).to(self.device)
     # %%

@@ -79,7 +79,7 @@ class AutoIntLayer(nn.Module):
 # %%
 class HybridBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=32, cross_layers=3,
-                 hidden_units=[256, 128], use_attention=True, dropout=0.1):
+                 hidden_units=[256, 128], dropout=0.1):
         super().__init__()
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
@@ -101,12 +101,8 @@ class HybridBackbone(nn.Module):
             ])
             last_dim = hidden
         self.deep_net = nn.Sequential(*layers)
-        self.use_attention = use_attention
-        if self.use_attention:
-            self.att_block = SelfAttentionBlock(feature_dim, num_heads=2, dropout=dropout)
-            att_out_dim = self.total_input_dim
-        else:
-            att_out_dim = 0
+        self.att_block = SelfAttentionBlock(feature_dim, num_heads=2, dropout=dropout)
+        att_out_dim = self.total_input_dim
         self.output_dim = self.total_input_dim + hidden_units[-1] + att_out_dim
     # %%
     def forward(self, x):
@@ -119,9 +115,8 @@ class HybridBackbone(nn.Module):
         gated_embs = self.senet(stacked_embs)
         flat_input = gated_embs.view(x.size(0), -1)
         outputs = [self.cross_net(flat_input), self.deep_net(flat_input)]
-        if self.use_attention:
-            att_out = self.att_block(gated_embs)
-            outputs.append(att_out.view(x.size(0), -1))
+        att_out = self.att_block(gated_embs)
+        outputs.append(att_out.view(x.size(0), -1))
         return torch.cat(outputs, dim=1)
 # %%
 class DCNv2Backbone(nn.Module):
