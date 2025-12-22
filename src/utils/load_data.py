@@ -31,9 +31,9 @@ def load(data_type: str = 'test',
          seed: int = 42):
     root = Path(__file__).parents[2]
     if data_type == 'original':
-        data = pd.read_excel(root / 'data' / 'All Data.xlsx', sheet_name='coding', nrows=amount)
+        data = pd.read_excel(root / 'data' / 'AWM' /'All Data.xlsx', sheet_name='coding', nrows=amount)
     elif data_type == 'dropna':
-        data = pd.read_excel(root / 'data' / 'All Data.xlsx', sheet_name='dropping', nrows=amount)
+        data = pd.read_excel(root / 'data' / 'AWM' / 'All Data.xlsx', sheet_name='dropping', nrows=amount)
     elif data_type == 'synthetic':
         if amount is None:
             raise ValueError('When loading synthetic data, amount cannot be None.')

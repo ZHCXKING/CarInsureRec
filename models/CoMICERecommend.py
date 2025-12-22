@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from torch.nn import functional as F
 from .base import BaseRecommender
-from src.utils import filling, process_mice_list, round
+from src.utils import filling, round
 from src.network import DCNv2Backbone, DeepFMBackbone, WideDeepBackbone, CoMICEHead, CoMICEModel, set_seed
 # %%
 class CoMICERecommend(BaseRecommender):
@@ -108,32 +108,36 @@ class CoMICERecommend(BaseRecommender):
     def fit(self, train_data: pd.DataFrame):
         self.out_dim = train_data[self.item_name].nunique()
         self.unique_item = list(range(self.out_dim))
+        # 1. 映射和标准化
         train_data = self._mapping(train_data, fit_bool=True)
         if self.standard_bool:
             train_data = self._standardize(train_data, fit_bool=True)
         rng = np.random.default_rng(seed=self.seed)
-        seed_val = rng.choice(1000)  # 只取一个随机种子
-        # 单次 MICE 插补
+        seed_val = rng.choice(1000)
+        # 2. 插补 (Filling 内部已经包含了 round)
+        # 注意：这里我们只进行一次插补，因为 m=1
         data_imputed, self.imputer = filling(train_data, method=self.kwargs['mice_method'], seed=seed_val)
-        # CRITICAL: 训练数据也需要 round，以匹配 Embedding 索引
-        # 假设 sparse_features 在 data_imputed 中是数值型，需要取整
-        # 注意：process_mice_list 内部可能没有 round，所以这里最好显式处理或者确认 process_mice_list 的逻辑
-        # 这里为了稳健，假设 filling 返回的是 float
-        data_imputed[self.sparse_features] = round(data_imputed[self.sparse_features])
+        # 3. 手动转换为 Tensor (替代 process_mice_list)
+        # 提取特征列和标签列
+        X_df = data_imputed[self.user_name]
+        y_df = data_imputed[self.item_name]
+        # 转换为 Tensor
+        # 特征通常是 float (Backbone 内部会将 sparse 列转为 long，但输入通常保持 float 格式以便统一处理)
+        x_train_tensor = torch.tensor(X_df.values, dtype=torch.float32)
+        # 标签是分类索引，必须是 long
+        y_train_tensor = torch.tensor(y_df.values, dtype=torch.long)
         dense_count = len(self.dense_features)
         sparse_dims = [self.vocabulary_sizes[col] for col in self.sparse_features]
-        # process_mice_list 通常接受列表，返回 [N, m, d]。这里传入长度为1的列表
-        x_train_tensor, y_train_tensor = process_mice_list([data_imputed], self.user_name, self.item_name)
-        # 压缩 m 维度: [N, 1, d] -> [N, d]
-        if x_train_tensor.dim() == 3:
-            x_train_tensor = x_train_tensor.squeeze(1)
+        # 4. 创建 Dataset 和 DataLoader
         train_loader = DataLoader(
             RecDataset(x_train_tensor, y_train_tensor),
             batch_size=self.kwargs['batch_size'],
             shuffle=True
         )
+        # 5. 构建模型和优化器
         self.model = self._build_model(sparse_dims, dense_count, self.out_dim)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.kwargs['lr'])
+        # 6. 训练循环
         for epoch in range(self.kwargs['epochs']):
             self.train_one_epoch(train_loader)
         self.is_trained = True
@@ -142,13 +146,16 @@ class CoMICERecommend(BaseRecommender):
         test_data = self._mapping(test_data, fit_bool=False)
         if self.standard_bool:
             test_data = self._standardize(test_data, fit_bool=False)
-        # 单次插补
+        # 1. 插补 (Transform)
         data = self.imputer.transform(test_data)
-        data = round(data)  # CRITICAL: 保持与训练一致
-        x_test_tensor, y_test_tensor = process_mice_list([data], self.user_name, self.item_name)
-        # 压缩 m 维度: [N, 1, d] -> [N, d]
-        if x_test_tensor.dim() == 3:
-            x_test_tensor = x_test_tensor.squeeze(1)
+        # 2. 取整 (Round) - 必须显式调用，因为 transform 不包含 round
+        data = round(data)
+        # 3. 手动转换为 Tensor (替代 process_mice_list)
+        X_df = data[self.user_name]
+        x_test_tensor = torch.tensor(X_df.values, dtype=torch.float32)
+        # 为了兼容 Dataset，我们需要一个 dummy y，或者如果 test_data 有标签就提取标签
+        y_df = data[self.item_name]
+        y_test_tensor = torch.tensor(y_df.values, dtype=torch.long)
         test_loader = DataLoader(
             RecDataset(x_test_tensor, y_test_tensor),
             batch_size=self.kwargs['batch_size'],
@@ -163,7 +170,6 @@ class CoMICERecommend(BaseRecommender):
                 logits, _ = self.model(x)
                 probs = torch.softmax(logits, dim=1)
                 all_scores.append(probs.cpu().numpy())
-
         final_scores = np.concatenate(all_scores, axis=0)
         return pd.DataFrame(final_scores, index=test_data.index, columns=self.unique_item)
 # %%

@@ -29,13 +29,8 @@ def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42)
 def round(df: pd.DataFrame):
     discrete_cols = df.columns
     for col in discrete_cols:
-        if col == 'NCD':
-            df[col] = np.round(df[col], decimals=1)
-        elif col == 'Car.price':
-            continue
-        else:
-            df[col] = np.round(df[col])
-            df[col] = df[col].astype('int64')
+        df[col] = np.round(df[col])
+        df[col] = df[col].astype('int64')
     return df
 # %%
 def filling(df: pd.DataFrame, method: str = 'iterative_NB', seed: int = 42):

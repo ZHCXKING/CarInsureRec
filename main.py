@@ -43,6 +43,7 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
 m = 1
 k = 3
 train, test = load('original', amount=None, split_num=1000) #original, dropna
+print(train['NCD'].unique())
 #train, test, _ = split_filling(train, test, method='iterative_SVM', seed=42)
 user_name = ['Age', 'DrivingExp', 'Occupation', 'NCD', 'Make', 'Car.year', 'Car.price']
 item_name = 'InsCov'
@@ -50,7 +51,7 @@ date_name = 'Date'
 sparse_features = ['Occupation', 'NCD', 'Make']
 dense_features = ['Age', 'Car.year', 'Car.price', 'DrivingExp']
 score = []
-model = CoMICERecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
+model = DeepFMRecommend(user_name, item_name, date_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
 model.fit(train)
 score.append(model.score_test(test, method='auc'))
 print(score)
