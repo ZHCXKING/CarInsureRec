@@ -40,7 +40,6 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
     df_copy[feature_cols] = data
     return df_copy
 #%%
-m = 1
 k = 3
 train, test, info = load('AWM', amount=2000, split_num=1000) #original, dropna
 #train, test, _ = split_filling(train, test, method='iterative_SVM', seed=42)
@@ -48,15 +47,14 @@ item_name = info['item_name']
 sparse_features = info['sparse_features']
 dense_features = info['dense_features']
 score = []
-train = add_missing_values(train, 0.1, feature_cols=sparse_features+dense_features, seed=42)
-model = DeepFMRecommend(item_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
-model.fit(train)
-score.append(model.score_test(test, method='auc'))
-print(score)
-# for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
-#     train_miss = add_missing_values(train, missing_rate, feature_cols=user_name, seed=42)
-#     test_miss = add_missing_values(test, missing_rate, feature_cols=user_name, seed=42)
-#     model = CoMICERecommend(user_name, item_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
-#     model.fit(train_miss)
-#     score.append(model.score_test(test_miss, method='auc'))
+# model = CoMICERecommend(item_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
+# model.fit(train)
+# score.append(model.score_test(test, method='auc'))
 # print(score)
+for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+    train_miss = add_missing_values(train, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
+    test_miss = add_missing_values(test, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
+    model = CoMICERecommend(item_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
+    model.fit(train_miss)
+    score.append(model.score_test(test_miss, method='auc'))
+print(score)

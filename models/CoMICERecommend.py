@@ -14,14 +14,14 @@ class CoMICERecommend(BaseRecommender):
         super().__init__('CoMICE', item_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'lr': 1e-4,
-            'batch_size': 128,
+            'batch_size': 512,
             'feature_dim': 64,
             'proj_dim': 32,
             'epochs': 200,
             'lambda_nce': 1.0,
-            'temperature': 0.1,
-            'mice_method': 'MICE_Ga',
-            'backbone': 'DeepFM',
+            'temperature': 0.2,
+            'mice_method': 'MICE_RF',
+            'backbone': 'DCNv2',
             'cross_layers': 3,
             'hidden_units': [256, 128]
         }
