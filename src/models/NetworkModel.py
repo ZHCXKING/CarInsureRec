@@ -1,12 +1,8 @@
 # %%
-import numpy as np
 import pandas as pd
-import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 from .base import BaseRecommender
-from src.utils import filling, round
-from src.network import AutoIntBackbone, DCNv2Backbone, DeepFMBackbone, WideDeepBackbone, set_seed, RecDataset
+from src.network import *
 # %%
 class StandardModel(nn.Module):
     def __init__(self, backbone, num_classes):
@@ -31,7 +27,6 @@ class NetworkRecommender(BaseRecommender):
             'hidden_units': [256, 128],
             'cross_layers': 3,
             'dropout': 0.1,
-            'mice_method': 'MICE_RF',
             'attention_layers': 3,
             'num_heads': 2
         }
@@ -49,7 +44,7 @@ class NetworkRecommender(BaseRecommender):
             'hidden_units': self.kwargs['hidden_units'],
             'dropout': self.kwargs['dropout']
         }
-        if self.backbone_class == DCNv2Backbone:
+        if self.backbone_class == [DCNv2Backbone, HybridBackbone]:
             backbone = self.backbone_class(
                 cross_layers=self.kwargs['cross_layers'],
                 **common_args
@@ -67,8 +62,6 @@ class NetworkRecommender(BaseRecommender):
     def fit(self, train_data: pd.DataFrame):
         self.out_dim = train_data[self.item_name].nunique()
         self.unique_item = list(range(self.out_dim))
-        train_data, self.imputer = filling(train_data, method=self.kwargs['mice_method'], seed=self.seed)
-        train_data = round(train_data, self.sparse_features)
         train_data = self._mapping(train_data, fit_bool=True)
         if self.standard_bool:
             train_data = self._standardize(train_data, fit_bool=True)
@@ -97,8 +90,6 @@ class NetworkRecommender(BaseRecommender):
     def get_proba(self, test_data: pd.DataFrame):
         if not self.is_trained:
             raise ValueError('Model not trained')
-        test_data = self.imputer.transform(test_data)
-        test_data = round(test_data, self.sparse_features)
         test_data = self._mapping(test_data, fit_bool=False)
         if self.standard_bool:
             test_data = self._standardize(test_data, fit_bool=False)
@@ -115,6 +106,10 @@ class NetworkRecommender(BaseRecommender):
         final_probs = np.concatenate(all_probs, axis=0)
         return pd.DataFrame(final_probs, index=test_data.index, columns=self.unique_item)
 # %%
+class HybridRecommend(NetworkRecommender):
+    def __init__(self, item_name, sparse_features, dense_features, **kwargs):
+        super().__init__('Hybrid', HybridBackbone, item_name, sparse_features, dense_features, **kwargs)
+# %%
 class DCNv2Recommend(NetworkRecommender):
     def __init__(self, item_name, sparse_features, dense_features, **kwargs):
         super().__init__('DCNv2', DCNv2Backbone, item_name, sparse_features, dense_features, **kwargs)
@@ -130,3 +125,7 @@ class WideDeepRecommend(NetworkRecommender):
 class AutoIntRecommend(NetworkRecommender):
     def __init__(self, item_name, sparse_features, dense_features, **kwargs):
         super().__init__('AutoInt', AutoIntBackbone, item_name, sparse_features, dense_features, **kwargs)
+# %%
+class FiBiNETRecommend(NetworkRecommender):
+    def __init__(self, item_name, sparse_features, dense_features, **kwargs):
+        super().__init__('FiBiNET', FiBiNETBackbone, item_name, sparse_features, dense_features, **kwargs)

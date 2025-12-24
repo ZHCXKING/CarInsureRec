@@ -54,26 +54,27 @@ class BaseRecommender:
         topk_item = pd.DataFrame(topk_item.tolist(), columns=[f'top{i + 1}' for i in range(self.k)])
         return topk_item
     # %%
-    def score_test(self, test_data: pd.DataFrame, method: str = 'mrr'):
-        score = None
+    def score_test(self, test_data: pd.DataFrame, methods: list):
+        scores_dict = {}
         item = test_data[self.item_name]
-        if method in ['auc', 'logloss']:
-            all_proba = self.get_proba(test_data)
-            if method == 'auc':
-                score = auc(item, all_proba, self.unique_item)
-            elif method == 'logloss':
-                score = logloss(item, all_proba, self.unique_item)
-        else:
-            topk_item = self.recommend(test_data)
-            if method == 'mrr_k':
-                score = mrr_k(item, topk_item, self.k)
-            elif method == 'recall_k':
-                score = recall_k(item, topk_item, self.k)
-            elif method == 'ndcg_k':
-                score = ndcg_k(item, topk_item, self.k)
-            else:
-                raise ValueError('method is not supported')
-        return score
+        all_proba = self.get_proba(test_data)
+        topk_item = self.recommend(test_data)
+        for m in methods:
+            if m == 'auc':
+                scores_dict['auc'] = auc(item, all_proba, self.unique_item)
+            elif m == 'logloss':
+                scores_dict['logloss'] = logloss(item, all_proba, self.unique_item)
+            elif m == 'mrr_k':
+                scores_dict['mrr_k'] = mrr_k(item, topk_item, self.k)
+            elif m == 'recall_k':
+                scores_dict['recall_k'] = recall_k(item, topk_item, self.k)
+            elif m == 'ndcg_k':
+                scores_dict['ndcg_k'] = ndcg_k(item, topk_item, self.k)
+        # 3. 按照输入 methods 的顺序构造返回列表
+        final_scores = []
+        for m in methods:
+            final_scores.append(scores_dict[m])
+        return final_scores
     # %%
     def _standardize(self, data: pd.DataFrame, fit_bool: bool):
         if self.dense_features is None:
@@ -92,8 +93,8 @@ class BaseRecommender:
                 mapping = {v: i + 1 for i, v in enumerate(unique)}
                 self.mapping[col] = mapping
                 self.vocabulary_sizes[col] = len(mapping) + 1
-                data[col] = data[col].map(lambda x: self.mapping[col].get(x, 0))
+                data[col] = data[col].map(mapping).fillna(0).astype('int64')
         else:
             for col in self.sparse_features:
-                data[col] = data[col].map(lambda x: self.mapping[col].get(x, 0))
+                data[col] = data[col].map(self.mapping[col]).fillna(0).astype('int64')
         return data

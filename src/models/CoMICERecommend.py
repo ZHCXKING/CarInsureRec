@@ -1,12 +1,8 @@
 # %%
-import numpy as np
 import pandas as pd
-import torch
 from torch.utils.data import DataLoader
-from torch.nn import functional as F
 from .base import BaseRecommender
-from src.utils import filling, round
-from src.network import HybridBackbone, CoMICEHead, CoMICEModel, set_seed, RecDataset
+from src.network import *
 # %%
 class CoMICERecommend(BaseRecommender):
     def __init__(self, item_name: str, sparse_features: list, dense_features: list,
@@ -15,15 +11,17 @@ class CoMICERecommend(BaseRecommender):
         default_params = {
             'lr': 1e-4,
             'batch_size': 512,
-            'feature_dim': 32,
-            'proj_dim': 32,
             'epochs': 200,
             'lambda_nce': 1.0,
             'temperature': 0.1,
-            'mice_method': 'MICE_RF',
-            'cross_layers': 3,
+            'proj_dim': 32,
+            'backbone': 'Hybrid',
+            'feature_dim': 32,
             'hidden_units': [256, 128],
-            'dropout': 0.1
+            'dropout': 0.1,
+            'cross_layers': 3,
+            'attention_layers': 3,
+            'num_heads': 2,
         }
         self.kwargs.update(default_params)
         self.kwargs.update(kwargs)
@@ -33,12 +31,37 @@ class CoMICERecommend(BaseRecommender):
     # %%
     def _build_model(self, sparse_dims, dense_count, num_classes):
         common_args = {
-            'sparse_dims': sparse_dims, 'dense_count': dense_count,
+            'sparse_dims': sparse_dims,
+            'dense_count': dense_count,
             'feature_dim': self.kwargs['feature_dim'],
             'hidden_units': self.kwargs['hidden_units'],
             'dropout': self.kwargs['dropout']
         }
-        backbone = HybridBackbone(cross_layers=self.kwargs['cross_layers'], **common_args)
+        backbone_name = self.kwargs['backbone']
+        if backbone_name == 'Hybrid':
+            backbone = HybridBackbone(
+                cross_layers=self.kwargs['cross_layers'],
+                **common_args
+            )
+        elif backbone_name == 'DCNv2':
+            backbone = DCNv2Backbone(
+                cross_layers=self.kwargs['cross_layers'],
+                **common_args
+            )
+        elif backbone_name == 'AutoInt':
+            backbone = AutoIntBackbone(
+                attention_layers=self.kwargs['attention_layers'],
+                num_heads=self.kwargs['num_heads'],
+                **common_args
+            )
+        elif backbone_name == 'FiBiNET':
+            backbone = FiBiNETBackbone(**common_args)
+        elif backbone_name == 'DeepFM':
+            backbone = DeepFMBackbone(**common_args)
+        elif backbone_name == 'WideDeep':
+            backbone = WideDeepBackbone(**common_args)
+        else:
+            raise ValueError(f"Backbone '{backbone_name}' not supported. ")
         head = CoMICEHead(backbone.output_dim, num_classes, proj_dim=self.kwargs['proj_dim'])
         return CoMICEModel(backbone, head).to(self.device)
     # %%
@@ -77,8 +100,6 @@ class CoMICERecommend(BaseRecommender):
     def fit(self, train_data: pd.DataFrame):
         self.out_dim = train_data[self.item_name].nunique()
         self.unique_item = list(range(self.out_dim))
-        train_data, self.imputer = filling(train_data, method=self.kwargs['mice_method'], seed=self.seed)
-        train_data = round(train_data, self.sparse_features)
         train_data = self._mapping(train_data, fit_bool=True)
         if self.standard_bool:
             train_data = self._standardize(train_data, fit_bool=True)
@@ -96,8 +117,6 @@ class CoMICERecommend(BaseRecommender):
     def get_proba(self, test_data: pd.DataFrame):
         if not self.is_trained:
             raise ValueError('Model not trained')
-        test_data = self.imputer.transform(test_data)
-        test_data = round(test_data, self.sparse_features)
         test_data = self._mapping(test_data, fit_bool=False)
         if self.standard_bool:
             test_data = self._standardize(test_data, fit_bool=False)

@@ -1,117 +1,203 @@
-# %%
-import numpy as np
-import pandas as pd
+import os
+import json
 import torch
-from torch.utils.data import DataLoader
-from torch.nn import functional as F
-from .base import BaseRecommender
-from src.utils import filling, round
-# 假设上面的网络定义在 src.network 中
-from src.network import HybridBackbone, AutoIntBackbone, DCNv2Backbone, DeepFMBackbone, WideDeepBackbone, CoMICEHead, CoMICEModel, StandardModel, set_seed, RecDataset
-# %%
-class NetworkRecommender(BaseRecommender):
-    def __init__(self, model_name: str, backbone_class, item_name: str, sparse_features: list, dense_features: list,
-                 standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
-        super().__init__(model_name, item_name, sparse_features, dense_features, standard_bool, seed, k)
-        self.backbone_class = backbone_class
+import optuna
+import pandas as pd
+import numpy as np
+from pathlib import Path
+# 假设你的模型类和工具函数在这些位置，请根据实际情况调整引用
+# from models import CoMICERecommend
+# from src.utils import load
 
-        # 在 default_params 中包含 dropout，默认为 0.1
-        default_params = {
-            'lr': 1e-4,
-            'batch_size': 512,
-            'feature_dim': 32,
-            'epochs': 200,
-            'hidden_units': [256, 128],
-            'cross_layers': 3,
-            'attention_layers': 3,
-            'num_heads': 2,
-            'dropout': 0.1,  # 所有子类模型 (DeepFM, WideDeep, DCN, AutoInt) 默认都会用到
-            'mice_method': 'MICE_RF'
-        }
-        self.kwargs.update(default_params)
-        self.kwargs.update(kwargs)
+# 为了脚本能独立运行，这里重新引用一下之前定义的关键类和函数名
+# 实际运行时请确保 CoMICERecommend 类在上下文中可用
 
-        self.user_name = sparse_features + dense_features
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        set_seed(self.seed)
-    def _build_model(self, sparse_dims, dense_count, num_classes):
-        # 将 dropout 加入 common_args，确保所有 Backbone 都能接收到
-        common_args = {
-            'sparse_dims': sparse_dims,
-            'dense_count': dense_count,
-            'feature_dim': self.kwargs['feature_dim'],
-            'hidden_units': self.kwargs['hidden_units'],
-            'dropout': self.kwargs['dropout']
-        }
+def save_experiment_results(save_dir, model_name, best_params, model_checkpoint):
+    """保存实验结果的辅助函数"""
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
 
-        if self.backbone_class == DCNv2Backbone:
-            backbone = self.backbone_class(
-                cross_layers=self.kwargs['cross_layers'],
-                **common_args
+    # 1. 保存最佳参数为 JSON
+    params_path = os.path.join(save_dir, 'best_params.json')
+    with open(params_path, 'w') as f:
+        json.dump(best_params, f, indent=4)
+
+    # 2. 保存模型 Checkpoint
+    model_path = os.path.join(save_dir, 'best_model.pth')
+    torch.save(model_checkpoint, model_path)
+
+    print(f"[{model_name}] 结果已保存至: {save_dir}")
+def objective(trial, train_data, val_data, info, model_name):
+    """Optuna 的目标函数"""
+
+    # 1. 基础固定参数
+    base_params = {
+        'backbone': model_name,  # 关键：指定当前使用的 Backbone
+        'batch_size': 1024,
+        'epochs': 30,  # 搜索阶段 Epochs 可以少一点，加快速度
+        'lambda_nce': 1.0,
+        'temperature': 0.1,
+        'cross_layers': 3,
+        'attention_layers': 3,
+        'num_heads': 2,
+        'proj_dim': 16,
+    }
+
+    # 2. 搜索空间定义
+    search_params = {
+        'lr': trial.suggest_float('lr', 1e-4, 1e-2, log=True),
+        'dropout': trial.suggest_float('dropout', 0.1, 0.5),
+        'feature_dim': trial.suggest_categorical('feature_dim', [16, 32, 64]),
+        # 动态调整 hidden_units 结构
+    }
+
+    # 根据 hidden_size 构建 hidden_units 列表
+    hidden_size = trial.suggest_categorical('hidden_size', [128, 256, 512])
+    search_params['hidden_units'] = [hidden_size, hidden_size // 2]
+
+    # 合并参数
+    current_params = base_params.copy()
+    current_params.update(search_params)
+
+    # 3. 初始化模型
+    # 注意：这里需要传入 info 中的元数据
+    model = CoMICERecommend(
+        item_name=info['item_name'],
+        sparse_features=info['sparse_features'],
+        dense_features=info['dense_features'],
+        standard_bool=True,
+        seed=42,  # 搜索阶段固定种子
+        k=3,
+        **current_params
+    )
+
+    # 4. 训练
+    # 搜索阶段使用单纯的 fit (只用 train 数据)
+    model.fit(train_data.copy())
+
+    # 5. 验证
+    # 使用 score_test 获取 AUC，optuna 需要最大化这个值
+    # score_test 返回列表 [auc_score, ...]
+    scores = model.score_test(val_data.copy(), methods=['auc'])
+    val_auc = scores[0]
+
+    return val_auc
+def main():
+    # --- 配置区域 ---
+    data_types = ['AWM', 'HIP', 'VID']
+    # 确保你的 CoMICERecommend 的 _build_model 支持这些名字
+    models = ['DCNv2', 'DeepFM', 'WideDeep', 'AutoInt', 'FiBiNET']
+
+    amount = 10000  # 数据采样量
+    train_ratio = 0.6
+    val_ratio = 0.1  # 剩下 0.3 是测试集
+    n_trials = 20  # 每个模型搜索多少次
+    seed = 42
+
+    # --- 主循环 ---
+    for d_type in data_types:
+        print(f"\n{'=' * 20} 正在处理数据集: {d_type} {'=' * 20}")
+
+        # 1. 加载数据 (针对每个数据集只加载一次)
+        try:
+            train, valid, test, info = load(
+                data_type=d_type,
+                amount=amount,
+                train_ratio=train_ratio,
+                val_ratio=val_ratio,
+                seed=seed
             )
-        elif self.backbone_class == AutoIntBackbone:
-            backbone = self.backbone_class(
-                attention_layers=self.kwargs['attention_layers'],
-                num_heads=self.kwargs['num_heads'],
-                **common_args
+            print(f"数据加载成功. Train: {len(train)}, Valid: {len(valid)}, Test: {len(test)}")
+        except Exception as e:
+            print(f"数据集 {d_type} 加载失败: {e}")
+            continue
+
+        for m_name in models:
+            print(f"\n--- 开始搜索模型: {m_name} (Dataset: {d_type}) ---")
+
+            # 2. 创建 Optuna Study
+            study = optuna.create_study(direction='maximize')
+
+            # 使用 lambda 或 partial 将数据传入 objective
+            study.optimize(
+                lambda trial: objective(trial, train, valid, info, m_name),
+                n_trials=n_trials
             )
-        else:
-            # DeepFM 和 WideDeep 现在也通过 common_args 接收 dropout
-            backbone = self.backbone_class(**common_args)
 
-        return StandardModel(backbone, num_classes).to(self.device)
-    # ... fit 和 get_proba 方法保持不变 ...
-# %%
-class DCNv2Recommend(NetworkRecommender):
-    def __init__(self, item_name, sparse_features, dense_features, **kwargs):
-        super().__init__('DCNv2', DCNv2Backbone, item_name, sparse_features, dense_features, **kwargs)
-class DeepFMRecommend(NetworkRecommender):
-    def __init__(self, item_name, sparse_features, dense_features, **kwargs):
-        super().__init__('DeepFM', DeepFMBackbone, item_name, sparse_features, dense_features, **kwargs)
-class WideDeepRecommend(NetworkRecommender):
-    def __init__(self, item_name, sparse_features, dense_features, **kwargs):
-        super().__init__('WideDeep', WideDeepBackbone, item_name, sparse_features, dense_features, **kwargs)
-class AutoIntRecommend(NetworkRecommender):
-    def __init__(self, item_name, sparse_features, dense_features, **kwargs):
-        super().__init__('AutoInt', AutoIntBackbone, item_name, sparse_features, dense_features, **kwargs)
-# %%
-class CoMICERecommend(BaseRecommender):
-    def __init__(self, item_name: str, sparse_features: list, dense_features: list,
-                 standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
-        super().__init__('CoMICE', item_name, sparse_features, dense_features, standard_bool, seed, k)
+            print(f"[{m_name}] 最佳 AUC: {study.best_value:.4f}")
+            print(f"[{m_name}] 最佳参数: {study.best_params}")
 
-        # 将 dropout 集成到 default_params 中
-        default_params = {
-            'lr': 1e-4,
-            'batch_size': 512,
-            'feature_dim': 32,
-            'proj_dim': 32,
-            'epochs': 200,
-            'lambda_nce': 1.0,
-            'temperature': 0.1,
-            'mice_method': 'MICE_RF',
-            'cross_layers': 3,
-            'hidden_units': [256, 128],
-            'use_attention': True,
-            'dropout': 0.1  # 新增默认参数
-        }
-        self.kwargs.update(default_params)
-        self.kwargs.update(kwargs)
-        self.user_name = sparse_features + dense_features
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        set_seed(self.seed)
-    def _build_model(self, sparse_dims, dense_count, num_classes):
-        common_args = {
-            'sparse_dims': sparse_dims, 'dense_count': dense_count,
-            'feature_dim': self.kwargs['feature_dim'],
-            'hidden_units': self.kwargs['hidden_units'],
-            'dropout': self.kwargs['dropout']  # 传递给 Backbone
-        }
-        # HybridBackbone 现在会接收并使用 dropout
-        backbone = HybridBackbone(cross_layers=self.kwargs['cross_layers'],
-                                  use_attention=self.kwargs['use_attention'],
-                                  **common_args)
+            # 3. 最佳参数重新训练 (Retrain)
+            # 策略：使用 Train + Valid 的数据量，以最佳参数重新训练，以获得更好的泛化能力
+            print(f"[{m_name}] 使用最佳参数在 (Train+Valid) 上重新训练...")
 
-        head = CoMICEHead(backbone.output_dim, num_classes, proj_dim=self.kwargs['proj_dim'])
-        return CoMICEModel(backbone, head).to(self.device)
-    # ... train_one_epoch, fit, get_proba 方法保持不变 ...
+            # 准备最终参数
+            final_params = {
+                'backbone': m_name,
+                'batch_size': 1024,
+                'epochs': 30,  # 最终训练 Epoch
+                'lambda_nce': 1.0,
+                'temperature': 0.1,
+                'cross_layers': 3,
+                'attention_layers': 3,
+                'num_heads': 2,
+                'proj_dim': 16,
+            }
+            # 更新 Optuna 搜索到的参数
+            final_params.update(study.best_params)
+            # 处理 hidden_units 的特殊逻辑
+            if 'hidden_size' in final_params:
+                hs = final_params.pop('hidden_size')  # 移除中间变量
+                final_params['hidden_units'] = [hs, hs // 2]
+
+            # 初始化最终模型
+            best_model = CoMICERecommend(
+                item_name=info['item_name'],
+                sparse_features=info['sparse_features'],
+                dense_features=info['dense_features'],
+                standard_bool=True,
+                seed=seed,
+                k=3,
+                **final_params
+            )
+
+            # 合并训练集和验证集
+            full_train = pd.concat([train, valid], axis=0).reset_index(drop=True)
+            best_model.fit(full_train)
+
+            # (可选) 在测试集上评估并打印
+            test_scores = best_model.score_test(test.copy(), methods=['auc', 'logloss'])
+            print(f"[{m_name}] 最终测试集表现 -> AUC: {test_scores[0]:.4f}, LogLoss: {test_scores[1]:.4f}")
+
+            # 4. 保存模型和参数
+            # 构建保存路径: checkpoints/数据集名/模型名/
+            save_dir = os.path.join('checkpoints', d_type, m_name)
+
+            # 构建 Checkpoint 字典
+            checkpoint = {
+                'init_params': {
+                    'item_name': info['item_name'],
+                    'sparse_features': info['sparse_features'],
+                    'dense_features': info['dense_features'],
+                    'standard_bool': True,
+                    'seed': seed,
+                    'k': 3,
+                    'kwargs': final_params
+                },
+                'preprocessing': {
+                    'mapping': best_model.mapping,
+                    'vocabulary_sizes': best_model.vocabulary_sizes,
+                    'scaler': best_model.scaler,
+                    'unique_item': best_model.unique_item,
+                    'out_dim': best_model.out_dim
+                },
+                'model_state_dict': best_model.model.state_dict()
+            }
+
+            # 执行保存
+            save_experiment_results(save_dir, m_name, final_params, checkpoint)
+
+            # 清理显存，防止 OOM
+            del best_model
+            torch.cuda.empty_cache()
+if __name__ == "__main__":
+    main()

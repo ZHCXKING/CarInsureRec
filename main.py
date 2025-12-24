@@ -1,14 +1,6 @@
 # %%
-import pandas as pd
-import numpy as np
-from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer
 from src.utils import load
-from src.utils import filling
-from models import *
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.svm import LinearSVR
+from src.models import *
 from src.evaluation import *
 #%%
 def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list = None, seed: int = 42):
@@ -41,20 +33,22 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
     return df_copy
 #%%
 k = 3
-train, test, info = load('AWM', amount=2000, split_num=1000) #original, dropna
-#train, test, _ = split_filling(train, test, method='iterative_SVM', seed=42)
+train, valid, test, info = load('AWM', amount=2000, train_ratio=0.6, val_ratio=0.1) #original, dropna
 item_name = info['item_name']
 sparse_features = info['sparse_features']
 dense_features = info['dense_features']
 score = []
-# model = CoMICERecommend(item_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
-# model.fit(train)
-# score.append(model.score_test(test, method='auc'))
-# print(score)
-for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
-    train_miss = add_missing_values(train, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
-    test_miss = add_missing_values(test, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
-    model = CoMICERecommend(item_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
-    model.fit(train_miss)
-    score.append(model.score_test(test_miss, method='auc'))
+model = CoMICERecommend(item_name, sparse_features, dense_features, seed=41, k=k, standard_bool=True, backbone='DeepFM')
+model.fit(train.copy())
+score.append(model.score_test(test.copy(), methods=['auc']))
+model = DeepFMRecommend(item_name, sparse_features, dense_features, seed=41, k=k, standard_bool=True)
+model.fit(train.copy())
+score.append(model.score_test(test.copy(), methods=['auc']))
 print(score)
+# for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
+#     train_miss = add_missing_values(train, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
+#     test_miss = add_missing_values(test, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
+#     model = CoMICERecommend(item_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
+#     model.fit(train_miss)
+#     score.append(model.score_test(test_miss, method='auc'))
+# print(score)

@@ -77,6 +77,29 @@ class AutoIntLayer(nn.Module):
         out = F.relu(self.linear_project(out))
         return out
 # %%
+class BilinearInteraction(nn.Module):
+    def __init__(self, num_fields, feature_dim, interaction_type='field_all'):
+        super().__init__()
+        self.interaction_type = interaction_type
+        self.num_fields = num_fields
+        self.feature_dim = feature_dim
+        if interaction_type == 'field_all':
+            self.W = nn.Parameter(torch.Tensor(1, feature_dim, feature_dim))
+        elif interaction_type == 'field_each':
+            self.W = nn.Parameter(torch.Tensor(num_fields, feature_dim, feature_dim))
+        elif interaction_type == 'field_interaction':
+            self.W = nn.Parameter(torch.Tensor(num_fields, num_fields, feature_dim, feature_dim))
+        else:
+            raise ValueError("interaction_type must be 'field_all', 'field_each' or 'field_interaction'")
+        nn.init.xavier_normal_(self.W)
+    def forward(self, inputs):
+        v_i = inputs.unsqueeze(2)
+        v_j = inputs.unsqueeze(1)
+        hadamard = v_i * v_j
+        triu_indices = torch.triu_indices(self.num_fields, self.num_fields, offset=1).to(inputs.device)
+        inter_vectors = hadamard[:, triu_indices[0], triu_indices[1], :]
+        return inter_vectors.view(inputs.size(0), -1)
+# %%
 class HybridBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=32, cross_layers=3,
                  hidden_units=[256, 128], dropout=0.1):
@@ -257,6 +280,54 @@ class AutoIntBackbone(nn.Module):
         flat_input = att_input.reshape(x.size(0), -1)
         output = self.dnn(flat_input)
         return output
+# %%
+class FiBiNETBackbone(nn.Module):
+    def __init__(self, sparse_dims, dense_count, feature_dim=32, hidden_units=[256, 128], dropout=0.1):
+        super().__init__()
+        self.num_sparse = len(sparse_dims)
+        self.num_dense = dense_count
+        self.feature_dim = feature_dim
+        self.sparse_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
+        if dense_count > 0:
+            self.dense_proj = nn.ModuleList([nn.Linear(1, feature_dim) for _ in range(dense_count)])
+        self.num_fields = self.num_sparse + self.num_dense
+        self.senet = SeNetGate(self.num_fields, reduction_ratio=2)
+        self.num_pairs = self.num_fields * (self.num_fields - 1) // 2
+        self.bilinear_dim = self.num_pairs * feature_dim
+        total_input_dim = (self.num_fields * feature_dim * 2) + (self.bilinear_dim * 2)
+        layers = []
+        last_dim = total_input_dim
+        for hidden in hidden_units:
+            layers.extend([
+                nn.Linear(last_dim, hidden),
+                nn.BatchNorm1d(hidden),
+                nn.ReLU(),
+                nn.Dropout(dropout)
+            ])
+            last_dim = hidden
+        self.deep_net = nn.Sequential(*layers)
+        self.output_dim = hidden_units[-1]
+    def forward(self, x):
+        sparse_x = x[:, :self.num_sparse].long()
+        embs = [emb(sparse_x[:, i]) for i, emb in enumerate(self.sparse_embs)]
+        if self.num_dense > 0:
+            dense_x = x[:, self.num_sparse:]
+            embs.extend([self.dense_proj[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)])
+        E = torch.stack(embs, dim=1)
+        E_se = self.senet(E)
+        def get_interactions(embeddings):
+            B, F, D = embeddings.shape
+            hadamard = embeddings.unsqueeze(2) * embeddings.unsqueeze(1)
+            triu_idx = torch.triu_indices(F, F, offset=1).to(embeddings.device)
+            inter = hadamard[:, triu_idx[0], triu_idx[1], :]
+            return inter.reshape(B, -1)
+        Z_flat = get_interactions(E)
+        Z_se_flat = get_interactions(E_se)
+        E_flat = E.view(E.size(0), -1)
+        E_se_flat = E_se.view(E_se.size(0), -1)
+        concatenated = torch.cat([E_flat, E_se_flat, Z_flat, Z_se_flat], dim=1)
+        out = self.deep_net(concatenated)
+        return out
 # %%
 class CoMICEHead(nn.Module):
     def __init__(self, input_dim, num_classes, proj_dim=128, hidden_dim=256, dropout_rate=0.1):
