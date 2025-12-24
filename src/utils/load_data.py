@@ -53,7 +53,7 @@ def _detail_info(path):
 # %%
 def load(data_type: str = 'AWM',
          amount: int | None = None,
-         train_ratio: float | None = None,
+         train_ratio: float = 0.6,
          val_ratio: float = 0.1,
          target_name: str = 'product_item',
          seed: int = 42):

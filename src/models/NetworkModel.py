@@ -1,5 +1,6 @@
 # %%
 import pandas as pd
+import copy
 from torch.utils.data import DataLoader
 from .base import BaseRecommender
 from src.network import *
@@ -44,7 +45,8 @@ class NetworkRecommender(BaseRecommender):
             'hidden_units': self.kwargs['hidden_units'],
             'dropout': self.kwargs['dropout']
         }
-        if self.backbone_class == [DCNv2Backbone, HybridBackbone]:
+        # 修正原代码中的逻辑错误: check if class is in list
+        if self.backbone_class in [DCNv2Backbone, HybridBackbone]:
             backbone = self.backbone_class(
                 cross_layers=self.kwargs['cross_layers'],
                 **common_args
@@ -58,24 +60,46 @@ class NetworkRecommender(BaseRecommender):
         else:
             backbone = self.backbone_class(**common_args)
         return StandardModel(backbone, num_classes).to(self.device)
-    # %%
-    def fit(self, train_data: pd.DataFrame):
+    # %% 修改后的 fit 方法，包含 Early Stopping
+    def fit(self, train_data: pd.DataFrame, valid_data: pd.DataFrame = None, patience: int = 5):
+        """
+        :param patience: 容忍多少个 epoch 验证集 loss 不下降
+        """
         self.out_dim = train_data[self.item_name].nunique()
         self.unique_item = list(range(self.out_dim))
+        # 1. 处理训练数据 (fit_bool=True)
         train_data = self._mapping(train_data, fit_bool=True)
         if self.standard_bool:
             train_data = self._standardize(train_data, fit_bool=True)
-        X_tensor = torch.tensor(train_data[self.user_name].values, dtype=torch.float32)
-        y_tensor = torch.tensor(train_data[self.item_name].values, dtype=torch.long)
+        X_train = torch.tensor(train_data[self.user_name].values, dtype=torch.float32)
+        y_train = torch.tensor(train_data[self.item_name].values, dtype=torch.long)
         sparse_dims = [self.vocabulary_sizes[col] for col in self.sparse_features]
         dense_count = len(self.dense_features)
-        train_loader = DataLoader(RecDataset(X_tensor, y_tensor), batch_size=self.kwargs['batch_size'], shuffle=True)
+        train_loader = DataLoader(RecDataset(X_train, y_train), batch_size=self.kwargs['batch_size'], shuffle=True)
+        # 2. 处理验证数据 (如果存在)
+        valid_loader = None
+        if valid_data is not None:
+            # 注意：验证集必须使用 fit_bool=False，沿用训练集的 mapping 和 scaler
+            valid_data = self._mapping(valid_data, fit_bool=False)
+            if self.standard_bool:
+                valid_data = self._standardize(valid_data, fit_bool=False)
+            X_val = torch.tensor(valid_data[self.user_name].values, dtype=torch.float32)
+            y_val = torch.tensor(valid_data[self.item_name].values, dtype=torch.long)
+            # 验证集不需要 shuffle
+            valid_loader = DataLoader(RecDataset(X_val, y_val), batch_size=self.kwargs['batch_size'], shuffle=False)
+        # 3. 初始化模型
         self.model = self._build_model(sparse_dims, dense_count, self.out_dim)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.kwargs['lr'])
         criterion = nn.CrossEntropyLoss()
+        # 4. 早停相关变量初始化
+        best_val_loss = float('inf')
+        patience_counter = 0
+        best_model_weights = None
+        # 5. 训练循环
         for epoch in range(self.kwargs['epochs']):
+            # --- Training ---
             self.model.train()
-            total_loss = 0.0
+            train_loss = 0.0
             for x, y in train_loader:
                 x, y = x.to(self.device), y.to(self.device)
                 self.optimizer.zero_grad()
@@ -83,8 +107,38 @@ class NetworkRecommender(BaseRecommender):
                 loss = criterion(logits, y)
                 loss.backward()
                 self.optimizer.step()
-                total_loss += loss.item()
-            print(f"Epoch {epoch + 1}: Loss {total_loss / len(train_loader):.4f}")
+                train_loss += loss.item()
+            avg_train_loss = train_loss / len(train_loader)
+            # --- Validation & Early Stopping ---
+            if valid_loader is not None:
+                self.model.eval()
+                valid_loss = 0.0
+                with torch.no_grad():
+                    for x_v, y_v in valid_loader:
+                        x_v, y_v = x_v.to(self.device), y_v.to(self.device)
+                        logits_v = self.model(x_v)
+                        loss_v = criterion(logits_v, y_v)
+                        valid_loss += loss_v.item()
+                avg_val_loss = valid_loss / len(valid_loader)
+                print(f"Epoch {epoch + 1}: Train Loss {avg_train_loss:.4f} | Val Loss {avg_val_loss:.4f}")
+                # 检查是否更优
+                if avg_val_loss < best_val_loss:
+                    best_val_loss = avg_val_loss
+                    patience_counter = 0
+                    # 在内存中保存最佳模型权重
+                    best_model_weights = copy.deepcopy(self.model.state_dict())
+                else:
+                    patience_counter += 1
+                # 触发早停
+                if patience_counter >= patience:
+                    self.model.load_state_dict(best_model_weights)
+                    break
+            else:
+                # 如果没有验证集，只打印训练 Loss
+                print(f"Epoch {epoch + 1}: Train Loss {avg_train_loss:.4f}")
+        # 如果训练结束且保存了最佳权重（针对没有触发早停但跑完了所有epoch的情况），恢复最佳权重
+        if best_model_weights is not None:
+            self.model.load_state_dict(best_model_weights)
         self.is_trained = True
     # %%
     def get_proba(self, test_data: pd.DataFrame):

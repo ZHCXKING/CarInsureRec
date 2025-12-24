@@ -42,7 +42,7 @@ model = CoMICERecommend(item_name, sparse_features, dense_features, seed=41, k=k
 model.fit(train.copy())
 score.append(model.score_test(test.copy(), methods=['auc']))
 model = DeepFMRecommend(item_name, sparse_features, dense_features, seed=41, k=k, standard_bool=True)
-model.fit(train.copy())
+model.fit(train.copy(), valid.copy())
 score.append(model.score_test(test.copy(), methods=['auc']))
 print(score)
 # for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
