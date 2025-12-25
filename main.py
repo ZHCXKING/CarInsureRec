@@ -1,4 +1,6 @@
 # %%
+from sympy.physics.units import temperature
+
 from src.utils import load
 from src.models import *
 from src.evaluation import *
@@ -38,10 +40,10 @@ item_name = info['item_name']
 sparse_features = info['sparse_features']
 dense_features = info['dense_features']
 score = []
-model = CoMICERecommend(item_name, sparse_features, dense_features, seed=41, k=k, standard_bool=True, backbone='DeepFM')
-model.fit(train.copy())
+model = CoMICERecommend(item_name, sparse_features, dense_features, seed=45, k=k, lambda_nce=0.1, temperature=0.1)
+model.fit(train.copy(), valid.copy())
 score.append(model.score_test(test.copy(), methods=['auc']))
-model = DeepFMRecommend(item_name, sparse_features, dense_features, seed=41, k=k, standard_bool=True)
+model = HybridRecommend(item_name, sparse_features, dense_features, seed=45, k=k)
 model.fit(train.copy(), valid.copy())
 score.append(model.score_test(test.copy(), methods=['auc']))
 print(score)

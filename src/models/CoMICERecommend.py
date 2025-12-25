@@ -10,8 +10,8 @@ class CoMICERecommend(BaseRecommender):
                  standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
         super().__init__('CoMICE', item_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
-            'lr': 1e-4,
-            'batch_size': 512,
+            'lr': 1e-3,
+            'batch_size': 1024,
             'epochs': 200,
             'lambda_nce': 1.0,
             'temperature': 0.1,
@@ -42,6 +42,8 @@ class CoMICERecommend(BaseRecommender):
         if backbone_name == 'Hybrid':
             backbone = HybridBackbone(
                 cross_layers=self.kwargs['cross_layers'],
+                attention_layers=self.kwargs['attention_layers'],
+                num_heads=self.kwargs['num_heads'],
                 **common_args
             )
         elif backbone_name == 'DCNv2':

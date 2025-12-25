@@ -21,8 +21,8 @@ class NetworkRecommender(BaseRecommender):
         super().__init__(model_name, item_name, sparse_features, dense_features, standard_bool, seed, k)
         self.backbone_class = backbone_class
         default_params = {
-            'lr': 1e-4,
-            'batch_size': 512,
+            'lr': 1e-3,
+            'batch_size': 1024,
             'feature_dim': 32,
             'epochs': 200,
             'hidden_units': [256, 128],
@@ -46,7 +46,14 @@ class NetworkRecommender(BaseRecommender):
             'dropout': self.kwargs['dropout']
         }
         # 修正原代码中的逻辑错误: check if class is in list
-        if self.backbone_class in [DCNv2Backbone, HybridBackbone]:
+        if self.backbone_class == HybridBackbone:
+            backbone = HybridBackbone(
+                cross_layers=self.kwargs['cross_layers'],
+                attention_layers=self.kwargs['attention_layers'],
+                num_heads=self.kwargs['num_heads'],
+                **common_args
+            )
+        elif self.backbone_class == DCNv2Backbone:
             backbone = self.backbone_class(
                 cross_layers=self.kwargs['cross_layers'],
                 **common_args
@@ -61,7 +68,7 @@ class NetworkRecommender(BaseRecommender):
             backbone = self.backbone_class(**common_args)
         return StandardModel(backbone, num_classes).to(self.device)
     # %% 修改后的 fit 方法，包含 Early Stopping
-    def fit(self, train_data: pd.DataFrame, valid_data: pd.DataFrame = None, patience: int = 5):
+    def fit(self, train_data: pd.DataFrame, valid_data: pd.DataFrame = None, patience: int = 10):
         """
         :param patience: 容忍多少个 epoch 验证集 loss 不下降
         """

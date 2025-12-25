@@ -102,7 +102,7 @@ class BilinearInteraction(nn.Module):
 # %%
 class HybridBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=32, cross_layers=3,
-                 hidden_units=[256, 128], dropout=0.1):
+                 attention_layers=1, num_heads=2, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
@@ -111,8 +111,11 @@ class HybridBackbone(nn.Module):
             self.dense_proj = nn.ModuleList([nn.Linear(1, feature_dim) for _ in range(dense_count)])
         self.num_fields = self.num_sparse + self.num_dense
         self.total_input_dim = self.num_fields * feature_dim
+        # SeNet
         self.senet = SeNetGate(self.num_fields)
+        # CrossNet
         self.cross_net = CrossNet(self.total_input_dim, num_layers=cross_layers)
+        # Deep Net
         layers = []
         last_dim = self.total_input_dim
         for hidden in hidden_units:
@@ -124,21 +127,30 @@ class HybridBackbone(nn.Module):
             ])
             last_dim = hidden
         self.deep_net = nn.Sequential(*layers)
-        self.att_block = SelfAttentionBlock(feature_dim, num_heads=2, dropout=dropout)
+        # Attention Tower (修改为支持多层堆叠)
+        # 使用 ModuleList 根据 attention_layers 循环创建 Block
+        self.att_layers = nn.ModuleList([
+            SelfAttentionBlock(feature_dim, num_heads=num_heads, dropout=dropout)
+            for _ in range(attention_layers)
+        ])
+        # Attention 模块输出维度与输入维度相同 (feature_dim * num_fields)
         att_out_dim = self.total_input_dim
         self.output_dim = self.total_input_dim + hidden_units[-1] + att_out_dim
-    # %%
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         embs = [emb(sparse_x[:, i]) for i, emb in enumerate(self.sparse_embs)]
         if self.num_dense > 0:
             dense_x = x[:, self.num_sparse:]
             embs.extend([self.dense_proj[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)])
-        stacked_embs = torch.stack(embs, dim=1)
-        gated_embs = self.senet(stacked_embs)
+        stacked_embs = torch.stack(embs, dim=1)  # [B, Fields, D]
+        gated_embs = self.senet(stacked_embs)  # [B, Fields, D]
         flat_input = gated_embs.view(x.size(0), -1)
+        # Cross Output & Deep Output
         outputs = [self.cross_net(flat_input), self.deep_net(flat_input)]
-        att_out = self.att_block(gated_embs)
+        # Attention Output (循环通过多层)
+        att_out = gated_embs
+        for layer in self.att_layers:
+            att_out = layer(att_out)
         outputs.append(att_out.view(x.size(0), -1))
         return torch.cat(outputs, dim=1)
 # %%
@@ -328,6 +340,31 @@ class FiBiNETBackbone(nn.Module):
         concatenated = torch.cat([E_flat, E_se_flat, Z_flat, Z_se_flat], dim=1)
         out = self.deep_net(concatenated)
         return out
+# %%
+class TabularAugmentation(nn.Module):
+    def __init__(self, sparse_idxs, dense_idxs, mask_prob=0.2, noise_std=0.01):
+        super().__init__()
+        self.sparse_idxs = sparse_idxs  # 稀疏特征在输入tensor中的列索引
+        self.dense_idxs = dense_idxs  # 稠密特征在输入tensor中的列索引
+        self.mask_prob = mask_prob
+        self.noise_std = noise_std
+    def forward(self, x):
+        if not self.training:
+            return x
+        x_aug = x.clone()
+        # 1. Sparse Masking: 随机将部分 Categorical 特征置为 0 (假设0是padding/unknown)
+        if len(self.sparse_idxs) > 0:
+            mask = torch.rand(x.shape[0], len(self.sparse_idxs), device=x.device) < self.mask_prob
+            # 构建这就需要知道 sparse 特征在 x 中的具体位置
+            # 假设 x 的前 len(sparse) 列是 sparse
+            sparse_part = x_aug[:, self.sparse_idxs]
+            sparse_part[mask] = 0
+            x_aug[:, self.sparse_idxs] = sparse_part
+        # 2. Dense Noise: 添加高斯噪声
+        if len(self.dense_idxs) > 0:
+            noise = torch.randn(x.shape[0], len(self.dense_idxs), device=x.device) * self.noise_std
+            x_aug[:, self.dense_idxs] += noise
+        return x_aug
 # %%
 class CoMICEHead(nn.Module):
     def __init__(self, input_dim, num_classes, proj_dim=128, hidden_dim=256, dropout_rate=0.1):
