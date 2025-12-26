@@ -35,15 +35,16 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
     return df_copy
 #%%
 k = 3
+seed = 40
 train, valid, test, info = load('AWM', amount=None, train_ratio=0.6, val_ratio=0.1) #original, dropna
 item_name = info['item_name']
 sparse_features = info['sparse_features']
 dense_features = info['dense_features']
 score = []
-model = CoMICERecommend(item_name, sparse_features, dense_features, seed=42, k=k)
+model = CoMICERecommend(item_name, sparse_features, dense_features, seed=seed, k=k, backbone='AutoInt')
 model.fit(train.copy())
 score.append(model.score_test(test.copy(), methods=['auc']))
-model = HybridRecommend(item_name, sparse_features, dense_features, seed=42, k=k)
+model = AutoIntRecommend(item_name, sparse_features, dense_features, seed=seed, k=k)
 model.fit(train.copy())
 score.append(model.score_test(test.copy(), methods=['auc']))
 print(score)
