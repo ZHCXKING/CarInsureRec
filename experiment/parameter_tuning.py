@@ -7,7 +7,7 @@ from src.models import *
 # --- 公共配置 ---
 ROOT = Path(__file__).parents[0]
 DATASETS = ['AWM', 'HIP', 'VID']
-MODELS = ['DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'CoMICE', 'Hybrid']
+MODELS = ['DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'CoMICE', 'Hybrid'] #'AutoInt'
 DEFAULT_PARAMS = {
     'lr': 1e-3,
     'batch_size': 1024,
@@ -38,7 +38,7 @@ def objective_base(trial, model_name, train, valid, info, default_params):
         'feature_dim': feature_dim,
         'hidden_units': hidden_units
     })
-    if model_name in ['CoMICE', 'Hybrid']:
+    if model_name in ['CoMICE', 'Hybrid', 'AutoInt']:
         params['attention_layers'] = trial.suggest_categorical('attention_layers', [1, 2, 3])
     if model_name in ['DCNv2', 'CoMICE', 'Hybrid']:
         params['cross_layers'] = trial.suggest_categorical('cross_layers', [1, 2, 3])
@@ -53,7 +53,7 @@ def run_optimization():
     amount = 10000
     train_ratio = 0.6
     val_ratio = 0.1
-    n_trials_base = 10  # 阶段一试验次数
+    n_trials_base = 100  # 阶段一试验次数
     for data_type in DATASETS:
         train, valid, test, info = load(data_type, amount, train_ratio, val_ratio)
         for model_name in MODELS:

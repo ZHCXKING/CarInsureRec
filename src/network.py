@@ -342,28 +342,29 @@ class FiBiNETBackbone(nn.Module):
         return out
 # %%
 class TabularAugmentation(nn.Module):
-    def __init__(self, sparse_idxs, dense_idxs, mask_prob=0.2, noise_std=0.01):
+    def __init__(self, num_sparse, num_dense, mask_prob=0.2, noise_std=0.0):
         super().__init__()
-        self.sparse_idxs = sparse_idxs  # 稀疏特征在输入tensor中的列索引
-        self.dense_idxs = dense_idxs  # 稠密特征在输入tensor中的列索引
+        self.num_sparse = num_sparse
+        self.num_dense = num_dense
         self.mask_prob = mask_prob
         self.noise_std = noise_std
     def forward(self, x):
         if not self.training:
             return x
         x_aug = x.clone()
-        # 1. Sparse Masking: 随机将部分 Categorical 特征置为 0 (假设0是padding/unknown)
-        if len(self.sparse_idxs) > 0:
-            mask = torch.rand(x.shape[0], len(self.sparse_idxs), device=x.device) < self.mask_prob
-            # 构建这就需要知道 sparse 特征在 x 中的具体位置
-            # 假设 x 的前 len(sparse) 列是 sparse
-            sparse_part = x_aug[:, self.sparse_idxs]
-            sparse_part[mask] = 0
-            x_aug[:, self.sparse_idxs] = sparse_part
-        # 2. Dense Noise: 添加高斯噪声
-        if len(self.dense_idxs) > 0:
-            noise = torch.randn(x.shape[0], len(self.dense_idxs), device=x.device) * self.noise_std
-            x_aug[:, self.dense_idxs] += noise
+        # 1. Mask Sparse Features (前 num_sparse 列)
+        if self.num_sparse > 0 and self.mask_prob > 0:
+            sparse_part = x_aug[:, :self.num_sparse]
+            # 生成 mask: True 表示该位置会被置为 0
+            mask = torch.rand_like(sparse_part, dtype=torch.float) < self.mask_prob
+            # 注意：这里直接操作 float tensor，假设 backbone 会处理 float 输入转 int
+            sparse_part[mask] = 0.0
+            x_aug[:, :self.num_sparse] = sparse_part
+        # 2. Add Noise to Dense Features (后 num_dense 列)
+        if self.num_dense > 0 and self.noise_std > 0:
+            dense_part = x_aug[:, self.num_sparse:]
+            noise = torch.randn_like(dense_part) * self.noise_std
+            x_aug[:, self.num_sparse:] = dense_part + noise
         return x_aug
 # %%
 class CoMICEHead(nn.Module):

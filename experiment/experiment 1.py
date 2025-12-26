@@ -8,9 +8,9 @@ from pathlib import Path
 # %%
 root = Path(__file__).parents[0]
 datasets = ['AWM', 'HIP', 'VID']
-models = ['DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'CoMICE', 'Hybrid']
+models = ['DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'CoMICE', 'Hybrid', 'AutoInt']
 metrics = ['auc', 'logloss', 'mrr_k', 'recall_k', 'ndcg_k']
-seeds = list(range(10))
+seeds = list(range(5, 10))
 amount = 10000
 train_ratio = 0.6
 val_ratio = 0.1

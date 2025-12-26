@@ -11,7 +11,7 @@
         512,
         256
     ],
-    "dropout": 0.25,
+    "dropout": 0.2,
     "attention_layers": 3,
     "num_heads": 2
 }

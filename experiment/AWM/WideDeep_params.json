@@ -10,7 +10,7 @@
     "hidden_units": [
         256
     ],
-    "dropout": 0.2,
+    "dropout": 0.25,
     "attention_layers": 3,
     "num_heads": 2
 }

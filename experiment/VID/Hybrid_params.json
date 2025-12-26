@@ -8,11 +8,11 @@
     "proj_dim": 32,
     "cross_layers": 1,
     "hidden_units": [
-        512,
-        256,
-        128
+        128,
+        64,
+        32
     ],
-    "dropout": 0.2,
-    "attention_layers": 2,
+    "dropout": 0.25,
+    "attention_layers": 3,
     "num_heads": 2
 }
