@@ -10,7 +10,7 @@ DATASETS = ['AWM', 'HIP', 'VID']
 MODELS = ['DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'AutoInt', 'CoMICE']
 DEFAULT_PARAMS = {
     'lr': 1e-3,
-    'batch_size': 1024,
+    'batch_size': 2048,
     'feature_dim': 32,
     'epochs': 200,
     'lambda_nce': 1.0,
@@ -56,7 +56,7 @@ def run_optimization():
     amount = None
     train_ratio = 0.6
     val_ratio = 0.1
-    n_trials_base = 100  # 阶段一试验次数
+    n_trials_base = 20  # 阶段一试验次数
     n_trials_comice = 10 # 阶段二试验次数
     for data_type in DATASETS:
         train, valid, test, info = load(data_type, amount, train_ratio, val_ratio)

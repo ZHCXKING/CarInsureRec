@@ -10,7 +10,7 @@ __all__ = [
     'KNNRecommend',
     'DeepFMRecommend',
     'WideDeepRecommend',
-    'DCNv2Recommend',
+    'DCNRecommend',
     'AutoIntRecommend',
     'HybridRecommend',
     'FiBiNETRecommend',

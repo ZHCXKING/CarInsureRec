@@ -1,134 +1,141 @@
-# %%
-import pandas as pd
-import numpy as np
-import json
-from pathlib import Path
-from scipy import stats  # 引入统计库
-from src.utils import load
-from src.models import *
-root = Path(__file__).parents[0]
-datasets = ['AWM', 'HIP', 'VID']
-models = ['DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'Hybrid', 'AutoInt']
-metrics = ['auc', 'logloss', 'mrr_k', 'recall_k', 'ndcg_k']
-seeds = list(range(5, 10))
-amount = 10000
-train_ratio = 0.6
-val_ratio = 0.1
-# %%
-def test_seeds(seeds, model_name, info, params, train, valid, test, metrics):
-    baseline_results = []
-    comice_results = []
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+class DCNv2Layer(nn.Module):
+    """
+    Deep & Cross Network V2 (Low-Rank version for efficiency)
+    Explicitly captures high-order feature interactions.
+    """
+    def __init__(self, input_dim, low_rank=64, num_experts=1):
+        super().__init__()
+        self.input_dim = input_dim
+        # U: [D, R], V: [R, D] -> W = U * V (Rank-deficient approximation)
+        self.U = nn.Parameter(torch.Tensor(num_experts, input_dim, low_rank))
+        self.V = nn.Parameter(torch.Tensor(num_experts, low_rank, input_dim))
+        self.b = nn.Parameter(torch.Tensor(num_experts, input_dim))
+        # Gating for experts (if num_experts > 1, basically MoE)
+        self.gating = nn.Linear(input_dim, num_experts) if num_experts > 1 else None
+        self._init_weights()
+    def _init_weights(self):
+        nn.init.xavier_uniform_(self.U)
+        nn.init.xavier_uniform_(self.V)
+        nn.init.zeros_(self.b)
+    def forward(self, x):
+        # x: [Batch, Input_Dim]
+        # x_0 is usually the original input, but in stacked layers x_l is input
+        # Standard DCNv2 formula: x_{l+1} = x_0 * (W * x_l + b) + x_l
+        # Here we implement one layer logic: out = x * (W * x + b) + x
+        # Low-rank: W = U * V
+        batch_size = x.shape[0]
+        # [Batch, 1, Dim] * [1, Experts, Dim, Low] -> [Batch, Experts, Low] (Optimization via internal MatMul)
+        # Simplified for 1 expert:
+        xv = torch.mm(x, self.V[0].t())  # [B, R]
+        wx = torch.mm(xv, self.U[0].t())  # [B, D]
+        output = x * (wx + self.b[0]) + x
+        return output
+class OptimizedHybridBackbone(nn.Module):
+    def __init__(self, sparse_dims, dense_count, feature_dim=32,
+                 cross_layers=3, attention_layers=2, num_heads=4,
+                 hidden_units=[256, 128], dropout=0.1,
+                 low_rank_dim=64):
+        super().__init__()
+        self.num_sparse = len(sparse_dims)
+        self.num_dense = dense_count
+        self.feature_dim = feature_dim
 
-    # 为了防止 CoMICE 缺少特有参数，我们可以加载 CoMICE 的默认参数进行 update
-    # 如果你的 params 字典里已经包含了 CoMICE 所需的参数 (如 lambda_nce)，则不需要这一步
-    # 这里假设 params 仅包含 model_name 的参数，因此我们可能需要补充 CoMICE 的默认值
-    comice_params = params.copy()
-    comice_defaults = {
-        'lambda_nce': 1.0, 'lambda_fcl': 1.0, 'temperature': 0.1,
-        'mask_prob': 0.2, 'noise_std': 0.05
-    }
-    for k, v in comice_defaults.items():
-        if k not in comice_params:
-            comice_params[k] = v
+        # 1. Embedding Layer
+        self.sparse_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
+        if dense_count > 0:
+            self.dense_proj = nn.ModuleList([nn.Linear(1, feature_dim) for _ in range(dense_count)])
 
-    for seed in seeds:
-        # 1. 训练 Baseline Model
-        ModelClass = globals()[f"{model_name}Recommend"]
-        model = ModelClass(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=5, **params)
-        model.fit(train.copy())
-        b_score = model.score_test(test.copy(), methods=metrics)
-        baseline_results.append(b_score)
+        self.num_fields = self.num_sparse + self.num_dense
+        self.total_input_dim = self.num_fields * feature_dim
 
-        # 2. 训练 CoMICE Model (传入 backbone 参数)
-        # 注意：这里假设 CoMICERecommend 的 __init__ 或 kwargs 能处理 backbone
-        comice_model = CoMICERecommend(
-            info['item_name'], info['sparse_features'], info['dense_features'],
-            seed=seed, k=5, backbone=model_name, **comice_params
-        )
-        comice_model.fit(train.copy())
-        c_score = comice_model.score_test(test.copy(), methods=metrics)
-        comice_results.append(c_score)
+        # 2. SeNet (Feature Importance Selection)
+        self.senet = SeNetGate(self.num_fields, reduction_ratio=2)
 
-    return np.array(baseline_results), np.array(comice_results)
-# %%
-def test():
-    final_report_data = []
+        # 3. Cross Tower (DCNv2 - Explicit Interaction)
+        # 保持输入输出维度一致，便于残差
+        self.dcn_layers = nn.ModuleList([
+            DCNv2Layer(self.total_input_dim, low_rank=low_rank_dim)
+            for _ in range(cross_layers)
+        ])
 
-    for data_type in datasets:
-        print(f"Processing Dataset: {data_type}")
-        train, valid, test, info = load(data_type, amount, train_ratio, val_ratio)
+        # 4. Deep Tower (DNN - Implicit Interaction)
+        deep_layers = []
+        in_dim = self.total_input_dim
+        for hidden in hidden_units:
+            deep_layers.extend([
+                nn.Linear(in_dim, hidden),
+                nn.BatchNorm1d(hidden),
+                nn.ReLU(),
+                nn.Dropout(dropout)
+            ])
+            in_dim = hidden
+        self.deep_net = nn.Sequential(*deep_layers)
+        self.deep_out_dim = hidden_units[-1]
 
-        for model_name in models:
-            print(f"  Evaluating Model: {model_name} vs CoMICE({model_name})...")
+        # 5. Attention Tower (Contextual Interaction)
+        # 使用 Transformer Encoder Layer 标准实现
+        encoder_layer = nn.TransformerEncoderLayer(d_model=feature_dim, nhead=num_heads,
+                                                   dim_feedforward=feature_dim * 2,
+                                                   dropout=dropout, batch_first=True)
+        self.att_encoder = nn.TransformerEncoder(encoder_layer, num_layers=attention_layers)
 
-            # 加载该模型的最佳参数
-            param_path = root / data_type / (model_name + "_params.json")
-            if param_path.exists():
-                with open(param_path, 'r') as f:
-                    params = json.load(f)
-            else:
-                print(f"    Warning: Params file not found for {model_name}, using defaults.")
-                params = {'batch_size': 1024, 'epochs': 10}  # 极其简单的默认值防止崩溃
+        # Attention Projection (Pooling后投影)
+        # Concat(Mean, Max) -> 2 * feature_dim
+        self.att_out_dim = feature_dim * 2
 
-            # 获取所有种子的结果
-            base_scores, comice_scores = test_seeds(seeds, model_name, info, params, train, valid, test, metrics)
+        # Final Norms
+        self.ln_cross = nn.LayerNorm(self.total_input_dim)
+        self.ln_deep = nn.LayerNorm(self.deep_out_dim)
+        self.ln_att = nn.LayerNorm(self.att_out_dim)
 
-            # 对每个指标进行统计分析
-            for i, metric in enumerate(metrics):
-                b_vals = base_scores[:, i]
-                c_vals = comice_scores[:, i]
+        # Final Output Dimension
+        self.output_dim = self.total_input_dim + self.deep_out_dim + self.att_out_dim
+    def forward(self, x):
+        # --- 1. Embedding Lookup ---
+        sparse_x = x[:, :self.num_sparse].long()
+        embs = [emb(sparse_x[:, i]) for i, emb in enumerate(self.sparse_embs)]
 
-                # 1. 计算均值和标准差
-                b_mean = np.mean(b_vals)
-                b_std = np.std(b_vals, ddof=1)
-                c_mean = np.mean(c_vals)
-                c_std = np.std(c_vals, ddof=1)
+        if self.num_dense > 0:
+            dense_x = x[:, self.num_sparse:]
+            embs.extend([self.dense_proj[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)])
 
-                # 2. 计算配对样本 T 检验 (Paired T-Test)
-                # 使用配对检验是因为使用了相同的 seed，排除了初始化的随机性干扰
-                if np.allclose(b_vals, c_vals):
-                    p_value = 1.0
-                    t_stat = 0.0
-                else:
-                    t_stat, p_value = stats.ttest_rel(c_vals, b_vals)
+        # [Batch, Fields, Emb_Dim]
+        stacked_embs = torch.stack(embs, dim=1)
 
-                # 3. 判断是否变好 (Is Better?)
-                # logloss 越小越好，其他指标越大越好
-                if metric == 'logloss':
-                    is_better = c_mean < b_mean
-                else:
-                    is_better = c_mean > b_mean
+        # --- 2. SeNet Gating ---
+        # 动态调整特征权重
+        gated_embs = self.senet(stacked_embs)
 
-                # 4. 判断显著性 (Significant?)
-                # p < 0.05 且 CoMICE 均值更优
-                is_significant = (p_value < 0.05) and is_better
+        # Flatten for Cross and Deep towers: [Batch, Fields * Emb_Dim]
+        flat_input = gated_embs.view(x.size(0), -1)
 
-                row = {
-                    'Dataset': data_type,
-                    'Backbone': model_name,
-                    'Metric': metric,
-                    # Baseline Info
-                    'Base_Mean': b_mean,
-                    'Base_Std': b_std,
-                    # CoMICE Info
-                    'CoMICE_Mean': c_mean,
-                    'CoMICE_Std': c_std,
-                    # Comparison
-                    'Improvement': (c_mean - b_mean) if metric != 'logloss' else (b_mean - c_mean),
-                    'Is_Better': is_better,
-                    'P_Value': p_value,
-                    'Significant': is_significant
-                }
-                final_report_data.append(row)
+        # --- 3. Cross Tower (DCNv2) ---
+        cross_out = flat_input
+        for layer in self.dcn_layers:
+            cross_out = layer(cross_out)
+        cross_out = self.ln_cross(cross_out)  # [Batch, Total_Input_Dim]
 
-    df_result = pd.DataFrame(final_report_data)
+        # --- 4. Deep Tower (DNN) ---
+        deep_out = self.deep_net(flat_input)
+        deep_out = self.ln_deep(deep_out)  # [Batch, Hidden_Last]
 
-    # 格式化输出，保留4位小数
-    numeric_cols = ['Base_Mean', 'Base_Std', 'CoMICE_Mean', 'CoMICE_Std', 'Improvement', 'P_Value']
-    df_result[numeric_cols] = df_result[numeric_cols].round(4)
+        # --- 5. Attention Tower (Transformer) ---
+        # Input: [Batch, Fields, Emb_Dim]
+        att_feat = self.att_encoder(gated_embs)
 
-    return df_result
-if __name__ == '__main__':
-    df = test()
-    print(df)
-    # df.to_csv("comice_comparison_results.csv", index=False)
+        # Pooling Strategy: 避免 Flatten 导致的维度爆炸
+        # Global Average Pooling
+        avg_pool = torch.mean(att_feat, dim=1)
+        # Global Max Pooling
+        max_pool = torch.max(att_feat, dim=1)[0]
+
+        att_out = torch.cat([avg_pool, max_pool], dim=1)
+        att_out = self.ln_att(att_out)  # [Batch, Emb_Dim * 2]
+
+        # --- 6. Fusion ---
+        final_out = torch.cat([cross_out, deep_out, att_out], dim=1)
+
+        return final_out

@@ -1,6 +1,6 @@
 {
     "lr": 0.001,
-    "batch_size": 1024,
+    "batch_size": 2048,
     "feature_dim": 64,
     "epochs": 200,
     "lambda_nce": 1.0,
@@ -8,9 +8,7 @@
     "proj_dim": 32,
     "cross_layers": 3,
     "hidden_units": [
-        512,
-        256,
-        128
+        512
     ],
     "dropout": 0.1,
     "attention_layers": 3,

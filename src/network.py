@@ -77,29 +77,6 @@ class AutoIntLayer(nn.Module):
         out = F.relu(self.linear_project(out))
         return out
 # %%
-class BilinearInteraction(nn.Module):
-    def __init__(self, num_fields, feature_dim, interaction_type='field_all'):
-        super().__init__()
-        self.interaction_type = interaction_type
-        self.num_fields = num_fields
-        self.feature_dim = feature_dim
-        if interaction_type == 'field_all':
-            self.W = nn.Parameter(torch.Tensor(1, feature_dim, feature_dim))
-        elif interaction_type == 'field_each':
-            self.W = nn.Parameter(torch.Tensor(num_fields, feature_dim, feature_dim))
-        elif interaction_type == 'field_interaction':
-            self.W = nn.Parameter(torch.Tensor(num_fields, num_fields, feature_dim, feature_dim))
-        else:
-            raise ValueError("interaction_type must be 'field_all', 'field_each' or 'field_interaction'")
-        nn.init.xavier_normal_(self.W)
-    def forward(self, inputs):
-        v_i = inputs.unsqueeze(2)
-        v_j = inputs.unsqueeze(1)
-        hadamard = v_i * v_j
-        triu_indices = torch.triu_indices(self.num_fields, self.num_fields, offset=1).to(inputs.device)
-        inter_vectors = hadamard[:, triu_indices[0], triu_indices[1], :]
-        return inter_vectors.view(inputs.size(0), -1)
-# %%
 class HybridBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=32, cross_layers=3,
                  attention_layers=1, num_heads=2, hidden_units=[256, 128], dropout=0.1):
@@ -154,7 +131,7 @@ class HybridBackbone(nn.Module):
         outputs.append(att_out.view(x.size(0), -1))
         return torch.cat(outputs, dim=1)
 # %%
-class DCNv2Backbone(nn.Module):
+class DCNBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=32, cross_layers=3,
                  hidden_units=[256, 128], dropout=0.1):
         super().__init__()

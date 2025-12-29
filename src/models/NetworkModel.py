@@ -53,7 +53,7 @@ class NetworkRecommender(BaseRecommender):
                 num_heads=self.kwargs['num_heads'],
                 **common_args
             )
-        elif self.backbone_class == DCNv2Backbone:
+        elif self.backbone_class == DCNBackbone:
             backbone = self.backbone_class(
                 cross_layers=self.kwargs['cross_layers'],
                 **common_args
@@ -171,9 +171,9 @@ class HybridRecommend(NetworkRecommender):
     def __init__(self, item_name, sparse_features, dense_features, **kwargs):
         super().__init__('Hybrid', HybridBackbone, item_name, sparse_features, dense_features, **kwargs)
 # %%
-class DCNv2Recommend(NetworkRecommender):
+class DCNRecommend(NetworkRecommender):
     def __init__(self, item_name, sparse_features, dense_features, **kwargs):
-        super().__init__('DCNv2', DCNv2Backbone, item_name, sparse_features, dense_features, **kwargs)
+        super().__init__('DCN', DCNBackbone, item_name, sparse_features, dense_features, **kwargs)
 # %%
 class DeepFMRecommend(NetworkRecommender):
     def __init__(self, item_name, sparse_features, dense_features, **kwargs):

@@ -9,28 +9,28 @@ from pathlib import Path
 # %%
 root = Path(__file__).parents[0]
 datasets = ['AWM', 'HIP', 'VID']
-models = ['DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'AutoInt', 'CoMICE']
+models = ['DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'AutoInt', 'Hybrid']
 metrics = ['auc', 'logloss', 'mrr_k', 'recall_k', 'ndcg_k']
-seeds = list(range(15, 20))
+seeds = list(range(0, 1))
 amount = 10000
-train_ratio = 0.6
+train_ratio = 0.7
 val_ratio = 0.1
 # %%
 def test_seeds(seeds, model_name, info, params, train, valid, test, metrics):
     baseline_results = []
-    # comice_results = []
+    comice_results = []
     for seed in seeds:
         ModelClass = globals()[f"{model_name}Recommend"]
         model = ModelClass(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, **params)
         model.fit(train.copy())
         b_score = model.score_test(test.copy(), methods=metrics)
         baseline_results.append(b_score)
-        # comice_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **params)
-        # comice_model.fit(train.copy())
-        # c_score = comice_model.score_test(test.copy(), methods=metrics)
-        # comice_results.append(c_score)
-    # return np.array(baseline_results), np.array(comice_results)
-    return np.array(baseline_results)
+        comice_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **params)
+        comice_model.fit(train.copy(), valid.copy())
+        c_score = comice_model.score_test(test.copy(), methods=metrics)
+        comice_results.append(c_score)
+    return np.array(baseline_results), np.array(comice_results)
+    # return np.array(baseline_results)
 # %%
 def test():
     final_report_data = []
@@ -39,17 +39,20 @@ def test():
         for model_name in models:
             with open(root / data_type / (model_name + "_params.json"), 'r') as f:
                 params = json.load(f)
-            # base_scores, comice_scores = test_seeds(seeds, model_name, info, params, train, test, metrics)
-            base_scores = test_seeds(seeds, model_name, info, params, train, valid, test, metrics)
+            params['epochs'] = 200
+            params['proj_dim'] = 256
+            params['batch_size'] = 8192
+            base_scores, comice_scores = test_seeds(seeds, model_name, info, params, train, valid, test, metrics)
+            # base_scores = test_seeds(seeds, model_name, info, params, train, valid, test, metrics)
             for i, metric in enumerate(metrics):
                 # 提取该指标下的所有 seed 结果
                 b_vals = base_scores[:, i]
-                # c_vals = comice_scores[:, i]
+                c_vals = comice_scores[:, i]
                 # 计算均值和标准差
                 b_mean = np.mean(b_vals)
-                b_std = np.std(b_vals, ddof=1)  # ddof=1 计算样本标准差
-                # c_mean = np.mean(c_vals)
-                # c_std = np.std(c_vals, ddof=1)
+                #b_std = np.std(b_vals, ddof=1)  # ddof=1 计算样本标准差
+                c_mean = np.mean(c_vals)
+                #c_std = np.std(c_vals, ddof=1)
                 # 计算T检验
                 # t_stat, p_value = stats.ttest_rel(c_vals, b_vals)
                 # 记录结果
@@ -58,10 +61,10 @@ def test():
                     'Base_Model': model_name,
                     'Metric': metric,
                     'Base_Mean': b_mean,
-                    'Base_Std': b_std,
-                    # 'CoMICE_Mean': c_mean,
-                    # 'CoMICE_Std': c_std,
-                    # 'ValueChange': c_mean - b_mean,
+                    #'Base_Std': b_std,
+                    'CoMICE_Mean': c_mean,
+                    #'CoMICE_Std': c_std,
+                    'ValueChange': c_mean - b_mean,
                     # 'p_value': p_value,
                 }
                 final_report_data.append(row)
@@ -75,6 +78,9 @@ def collect_all_results():
         for model_name in models:
             with open(root / data_type / (model_name + "_params.json"), 'r') as f:
                 params = json.load(f)
+            params['epochs'] = 1000
+            params['proj_dim'] = 128
+            params['batch_size'] = 1024
             for seed in seeds:
                 ModelClass = globals()[f"{model_name}Recommend"]
                 model = ModelClass(
@@ -85,7 +91,7 @@ def collect_all_results():
                     k=3,
                     **params
                 )
-                model.fit(train.copy(), valid.copy())
+                model.fit(train.copy())
                 scores = model.score_test(test.copy(), methods=metrics)
                 record = {
                     'Dataset': data_type,

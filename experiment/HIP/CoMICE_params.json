@@ -1,15 +1,15 @@
 {
     "lr": 0.001,
-    "batch_size": 1024,
-    "feature_dim": 64,
+    "batch_size": 2048,
+    "feature_dim": 16,
     "epochs": 200,
     "lambda_nce": 1.0,
     "temperature": 0.1,
     "proj_dim": 64,
     "cross_layers": 3,
     "hidden_units": [
-        256,
-        128
+        512,
+        256
     ],
     "dropout": 0.1,
     "attention_layers": 3,

@@ -1,6 +1,6 @@
 {
     "lr": 0.001,
-    "batch_size": 1024,
+    "batch_size": 2048,
     "feature_dim": 64,
     "epochs": 200,
     "lambda_nce": 1.0,
