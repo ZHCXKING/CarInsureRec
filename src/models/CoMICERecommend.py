@@ -1,9 +1,86 @@
 # %%
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import pandas as pd
+import numpy as np
 import copy
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
+from src.utils import filling, round
 from .base import BaseRecommender
-from src.network import *
+from src.network import set_seed, DCNBackbone, DCNv2Backbone, AutoIntBackbone, FiBiNETBackbone, DeepFMBackbone, WideDeepBackbone, RecDataset
+# %%
+def pairwise_label_aware_loss(z1, z2, y, temperature=0.1):
+    batch_size = z1.shape[0]
+    device = z1.device
+    features = torch.cat([z1, z2], dim=0)
+    labels = torch.cat([y, y], dim=0)
+    features = F.normalize(features, dim=1)
+    sim_matrix = torch.matmul(features, features.T) / temperature
+    sim_max, _ = torch.max(sim_matrix, dim=1, keepdim=True)
+    sim_matrix = sim_matrix - sim_max.detach()
+    mask_label = torch.eq(labels.unsqueeze(0), labels.unsqueeze(1)).float()
+    mask_self = torch.eye(2 * batch_size, device=device)
+    mask_pos = torch.zeros((2 * batch_size, 2 * batch_size), device=device)
+    mask_pos[torch.arange(batch_size), torch.arange(batch_size) + batch_size] = 1
+    mask_pos[torch.arange(batch_size) + batch_size, torch.arange(batch_size)] = 1
+    mask_valid_neg = (1 - mask_label) + mask_pos
+    mask_valid_neg = mask_valid_neg * (1 - mask_self)
+    mask_valid_neg = (mask_valid_neg > 0).float()
+    exp_sim = torch.exp(sim_matrix)
+    pos_sim = (exp_sim * mask_pos).sum(dim=1)
+    neg_sim_sum = (exp_sim * mask_valid_neg).sum(dim=1)
+    log_prob = -torch.log(pos_sim / (neg_sim_sum + 1e-8) + 1e-8)
+    return log_prob.mean()
+def multiview_label_aware_loss(projections_list, y, temperature=0.1):
+    num_views = len(projections_list)
+    if num_views < 2:
+        return torch.tensor(0.0).to(projections_list[0].device)
+    total_loss = 0.0
+    pair_count = 0
+    for i in range(num_views):
+        for j in range(i + 1, num_views):
+            loss = pairwise_label_aware_loss(projections_list[i], projections_list[j], y, temperature)
+            total_loss += loss
+            pair_count += 1
+    return total_loss / pair_count
+class MultiViewRecDataset(Dataset):
+    def __init__(self, X_list, y):
+        self.X_list = X_list
+        self.y = y
+        self.N = self.X_list[0].shape[0]
+        for x in self.X_list:
+            assert x.shape[0] == self.N
+    def __len__(self):
+        return self.N
+    def __getitem__(self, idx):
+        views = [x[idx] for x in self.X_list]
+        return (*views, self.y[idx])
+# %%
+class ContrastiveModel(nn.Module):
+    def __init__(self, backbone, num_classes, proj_dim=32, is_binary=False):
+        super().__init__()
+        self.backbone = backbone
+        output_dim = getattr(backbone, 'output_dim', None)
+        if output_dim is None:
+            raise ValueError("Backbone must have 'output_dim' attribute")
+        if output_dim == 1 and num_classes > 2:
+            self.classifier_head = nn.Linear(1, num_classes)
+        elif output_dim == 1 and num_classes == 2:
+            self.classifier_head = nn.Identity()
+        else:
+            self.classifier_head = nn.Linear(output_dim, num_classes)
+
+        self.projection_head = nn.Sequential(
+            nn.Linear(output_dim, output_dim),
+            nn.ReLU(),
+            nn.Linear(output_dim, proj_dim)
+        )
+    def forward(self, x):
+        features = self.backbone(x)
+        logits = self.classifier_head(features)
+        proj = self.projection_head(features)
+        return logits, proj
 # %%
 class CoMICERecommend(BaseRecommender):
     def __init__(self, item_name: str, sparse_features: list, dense_features: list,
@@ -16,22 +93,22 @@ class CoMICERecommend(BaseRecommender):
             'lambda_nce': 1.0,
             'temperature': 0.1,
             'proj_dim': 32,
-            'backbone': 'Hybrid',
+            'backbone': 'DCN',
             'feature_dim': 32,
             'hidden_units': [256, 128],
             'dropout': 0.1,
             'cross_layers': 3,
             'attention_layers': 3,
             'num_heads': 2,
-            'mask_prob': 0.1,  # 新增：稀疏特征 Mask 概率
-            'noise_std': 0.01  # 新增：稠密特征噪声标准差
+            'low_rank': 64,
+            'mice_method': 'MICE_NB',
+            'num_views': 3
         }
         self.kwargs.update(default_params)
         self.kwargs.update(kwargs)
         self.user_name = sparse_features + dense_features
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         set_seed(self.seed)
-    # %%
     def _build_model(self, sparse_dims, dense_count, num_classes):
         common_args = {
             'sparse_dims': sparse_dims,
@@ -41,24 +118,12 @@ class CoMICERecommend(BaseRecommender):
             'dropout': self.kwargs['dropout']
         }
         backbone_name = self.kwargs['backbone']
-        if backbone_name == 'Hybrid':
-            backbone = HybridBackbone(
-                cross_layers=self.kwargs['cross_layers'],
-                attention_layers=self.kwargs['attention_layers'],
-                num_heads=self.kwargs['num_heads'],
-                **common_args
-            )
-        elif backbone_name == 'DCN':
-            backbone = DCNBackbone(
-                cross_layers=self.kwargs['cross_layers'],
-                **common_args
-            )
+        if backbone_name == 'DCN':
+            backbone = DCNBackbone(cross_layers=self.kwargs['cross_layers'], **common_args)
+        elif backbone_name == 'DCNv2':
+            backbone = DCNv2Backbone(cross_layers=self.kwargs['cross_layers'], low_rank=self.kwargs['low_rank'], **common_args)
         elif backbone_name == 'AutoInt':
-            backbone = AutoIntBackbone(
-                attention_layers=self.kwargs['attention_layers'],
-                num_heads=self.kwargs['num_heads'],
-                **common_args
-            )
+            backbone = AutoIntBackbone(attention_layers=self.kwargs['attention_layers'], num_heads=self.kwargs['num_heads'], **common_args)
         elif backbone_name == 'FiBiNET':
             backbone = FiBiNETBackbone(**common_args)
         elif backbone_name == 'DeepFM':
@@ -67,136 +132,102 @@ class CoMICERecommend(BaseRecommender):
             backbone = WideDeepBackbone(**common_args)
         else:
             raise ValueError(f"Backbone '{backbone_name}' not supported. ")
-        head = CoMICEHead(backbone.output_dim, num_classes, proj_dim=self.kwargs['proj_dim'])
-        model = CoMICEModel(backbone, head).to(self.device)
-        # 初始化增强模块
-        self.augmenter = TabularAugmentation(
-            num_sparse=len(self.sparse_features),
-            num_dense=len(self.dense_features),
-            mask_prob=self.kwargs['mask_prob'],
-            noise_std=self.kwargs['noise_std']
-        ).to(self.device)
-        return model
-    # %% 修改：返回 loss 而不是直接打印，方便在 fit 中统一管理日志
+        is_binary = (num_classes == 2)
+        model = ContrastiveModel(backbone, num_classes, self.kwargs['proj_dim'], is_binary)
+        return model.to(self.device)
     def train_one_epoch(self, dataloader):
         self.model.train()
-        total_loss, ce_acc, nce_acc = 0.0, 0.0, 0.0
-        for x, y in dataloader:
-            x, y = x.to(self.device), y.to(self.device)
-            batch_size = x.size(0)
-            # --- Task 1: Main Classification Task ---
-            logits_clean, _ = self.model(x)
-            loss_ce = F.cross_entropy(logits_clean, y)
-            # --- Task 2: Label-Aware Self-Supervised Task ---
-            # 1. Augmentation
-            x_view1 = self.augmenter(x)
-            x_view2 = self.augmenter(x)
-            # 2. Projection
-            _, proj1 = self.model(x_view1)
-            _, proj2 = self.model(x_view2)
-            features = torch.cat([proj1, proj2], dim=0)  # [2B, D]
-            # 3. Similarity Matrix
-            sim_matrix = torch.matmul(features, features.T) / self.kwargs['temperature']
-            sim_max, _ = torch.max(sim_matrix, dim=1, keepdim=True)
-            sim_matrix = sim_matrix - sim_max.detach()  # Stability
-            # 4. 构建 Mask (创新点在这里)
-            # Label Mask: 标记出 Batch 中 label 相同的样本对
-            # y_cat: [y, y] -> [2B]
-            y_cat = torch.cat([y, y], dim=0)
-            # mask_label[i, j] = 1 if label[i] == label[j]
-            mask_label = torch.eq(y_cat.unsqueeze(0), y_cat.unsqueeze(1)).float()
-            # Identity Mask: 排除自身 (对角线)
-            mask_self = torch.eye(2 * batch_size, device=self.device)
-            # Positive Mask: 仅指 SimCLR 定义的正样本 (i, i+B) 和 (i+B, i)
-            # 这是我们想要在分子中拉近的目标
-            mask_pos = torch.zeros((2 * batch_size, 2 * batch_size), device=self.device)
-            mask_pos[torch.arange(batch_size), torch.arange(batch_size) + batch_size] = 1
-            mask_pos[torch.arange(batch_size) + batch_size, torch.arange(batch_size)] = 1
-            # Negative Mask (分母的 Mask):
-            # 原始 SimCLR: 只要不是自己，都是负样本 -> (1 - mask_self)
-            # 创新改进 FN-Cancellation: 只要不是自己，且 *label不同*，才是负样本
-            # 也就是说：如果 label 相同 (mask_label==1)，我们既不把它当正样本(分子)，也不把它当负样本(分母)，直接忽略
-            # 逻辑：
-            # 真正的负样本 = (Label不同) OR (是自身对应的增强视图-即原本的正样本对)
-            # 注意：SimCLR公式中分母通常包含正样本项，为了标准实现，我们通常保留正样本在分母，剔除其他同label的项
-            # 定义：允许在分母中出现的项 = (Label不同的项) + (SimCLR定义的正样本对)
-            mask_valid_neg = (1 - mask_label) + mask_pos
-            # 确保对角线不参与
-            mask_valid_neg = mask_valid_neg * (1 - mask_self)
-            # 限制为 0/1
-            mask_valid_neg = (mask_valid_neg > 0).float()
-            # 5. Compute Loss
-            exp_sim = torch.exp(sim_matrix)
-            # 分子: exp(sim(pos))
-            pos_sim = (exp_sim * mask_pos).sum(dim=1)
-            # 分母: sum(exp(sim(negatives)))
-            # 只累加 valid_neg mask 为 1 的部分
-            neg_sim_sum = (exp_sim * mask_valid_neg).sum(dim=1)
-            # Log Prob
-            # loss = -log ( pos / (pos + negs) )
-            # 注意：SimCLR 标准公式分母包含正样本项。
-            # mask_valid_neg 包含了 mask_pos，所以 neg_sim_sum 已经包含了 pos_sim
-            log_prob = -torch.log(pos_sim / (neg_sim_sum + 1e-8) + 1e-8)
-            loss_nce = log_prob.mean()
-            # Total Loss
-            loss = loss_ce + self.kwargs['lambda_nce'] * loss_nce
+        total_loss = 0.0
+        total_ce = 0.0
+        total_nce = 0.0
+        for batch in dataloader:
+            views_x = batch[:-1]
+            y = batch[-1].to(self.device)
+            views_x = [v.to(self.device) for v in views_x]
             self.optimizer.zero_grad()
+            logits_list = []
+            projs_list = []
+            for x in views_x:
+                l, p = self.model(x)
+                logits_list.append(l)
+                projs_list.append(p)
+            ce_loss = 0.0
+            for l in logits_list:
+                ce_loss += F.cross_entropy(l, y)
+            ce_loss = ce_loss / len(views_x)
+            nce_loss = multiview_label_aware_loss(
+                projs_list,
+                y,
+                temperature=self.kwargs['temperature']
+            )
+            loss = ce_loss + self.kwargs['lambda_nce'] * nce_loss
             loss.backward()
             self.optimizer.step()
             total_loss += loss.item()
-            ce_acc += loss_ce.item()
-            nce_acc += loss_nce.item()
+            total_ce += ce_loss.item()
+            total_nce += nce_loss.item()
         n = len(dataloader)
-        return total_loss / n, ce_acc / n, nce_acc / n
-    # %% 修改后的 fit 方法，包含 Early Stopping
+        return total_loss / n, total_ce / n, total_nce / n
     def fit(self, train_data: pd.DataFrame, valid_data: pd.DataFrame = None, patience: int = 10):
         self.out_dim = train_data[self.item_name].nunique()
         self.unique_item = list(range(self.out_dim))
-        # 1. 处理训练数据
-        train_data = self._mapping(train_data, fit_bool=True)
+        num_views = self.kwargs['num_views']
+        print(f"Generating {num_views} MICE views...")
+        views_dataframes = []
+        for i in range(num_views):
+            current_seed = self.seed + i
+            df_filled, imputer = filling(train_data.copy(), method=self.kwargs['mice_method'], seed=current_seed)
+            df_filled = round(df_filled, self.sparse_features)
+            views_dataframes.append(df_filled)
+            if i == 0:
+                self.imputer = imputer
+        print("Preprocessing views...")
+        views_dataframes[0] = self._mapping(views_dataframes[0], fit_bool=True)
         if self.standard_bool:
-            train_data = self._standardize(train_data, fit_bool=True)
-        X_tensor = torch.tensor(train_data[self.user_name].values, dtype=torch.float32)
-        y_tensor = torch.tensor(train_data[self.item_name].values, dtype=torch.long)
+            views_dataframes[0] = self._standardize(views_dataframes[0], fit_bool=True)
+        for i in range(1, num_views):
+            views_dataframes[i] = self._mapping(views_dataframes[i], fit_bool=False)
+            if self.standard_bool:
+                views_dataframes[i] = self._standardize(views_dataframes[i], fit_bool=False)
+        X_tensors = [torch.tensor(df[self.user_name].values, dtype=torch.float32) for df in views_dataframes]
+        y_tensor = torch.tensor(views_dataframes[0][self.item_name].values, dtype=torch.long)
         sparse_dims = [self.vocabulary_sizes[col] for col in self.sparse_features]
         dense_count = len(self.dense_features)
-        train_loader = DataLoader(RecDataset(X_tensor, y_tensor), batch_size=self.kwargs['batch_size'], shuffle=True)
-        # 2. 处理验证数据 (如果存在)
+        train_loader = DataLoader(
+            MultiViewRecDataset(X_tensors, y_tensor),
+            batch_size=self.kwargs['batch_size'],
+            shuffle=True
+        )
         valid_loader = None
         if valid_data is not None:
-            # 关键：使用 fit_bool=False 防止数据泄露
-            valid_data = self._mapping(valid_data, fit_bool=False)
+            val_filled = self.imputer.transform(valid_data.copy())
+            val_filled = round(val_filled, self.sparse_features)
+            val_filled = self._mapping(val_filled, fit_bool=False)
             if self.standard_bool:
-                valid_data = self._standardize(valid_data, fit_bool=False)
-            X_val = torch.tensor(valid_data[self.user_name].values, dtype=torch.float32)
-            y_val = torch.tensor(valid_data[self.item_name].values, dtype=torch.long)
-            # 验证集不需要 shuffle，也不需要 batch_size 特别大，沿用即可
+                val_filled = self._standardize(val_filled, fit_bool=False)
+            X_val = torch.tensor(val_filled[self.user_name].values, dtype=torch.float32)
+            y_val = torch.tensor(val_filled[self.item_name].values, dtype=torch.long)
             valid_loader = DataLoader(RecDataset(X_val, y_val), batch_size=self.kwargs['batch_size'], shuffle=False)
-        # 3. 初始化模型和优化器
         self.model = self._build_model(sparse_dims, dense_count, self.out_dim)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.kwargs['lr'])
-        # 4. 早停变量初始化
         best_val_loss = float('inf')
         patience_counter = 0
         best_model_weights = None
-        # 5. 训练循环
+        print(f"Start Contrastive Training with {num_views} views (Label-Aware)...")
         for epoch in range(self.kwargs['epochs']):
-            # 训练
             avg_loss, avg_ce, avg_nce = self.train_one_epoch(train_loader)
-            log_msg = f"Epoch {epoch + 1}: Train Loss {avg_loss:.4f} (CE: {avg_ce:.4f}, NCE: {avg_nce:.4f})"
-            # 验证
+            log_msg = f"Epoch {epoch + 1}: Total {avg_loss:.4f} | CE {avg_ce:.4f} | NCE {avg_nce:.4f}"
             if valid_loader is not None:
                 self.model.eval()
                 val_loss_sum = 0.0
                 with torch.no_grad():
                     for x_v, y_v in valid_loader:
                         x_v, y_v = x_v.to(self.device), y_v.to(self.device)
-                        logits_v, _ = self.model(x_v)  # CoMICE 返回 logits 和 proj
-                        # 仅使用 CrossEntropy 作为早停指标（关注分类准确性）
+                        logits_v, _ = self.model(x_v)
                         loss_v = F.cross_entropy(logits_v, y_v)
                         val_loss_sum += loss_v.item()
                 avg_val_loss = val_loss_sum / len(valid_loader)
-                # Check Early Stopping
+                log_msg += f" | Val CE {avg_val_loss:.4f}"
                 if avg_val_loss < best_val_loss:
                     best_val_loss = avg_val_loss
                     patience_counter = 0
@@ -204,23 +235,23 @@ class CoMICERecommend(BaseRecommender):
                 else:
                     patience_counter += 1
             print(log_msg)
-            # 触发早停
             if valid_loader is not None and patience_counter >= patience:
+                print("Early stopping triggered")
                 self.model.load_state_dict(best_model_weights)
                 break
-        # 如果训练跑满 epochs 且有验证集，恢复最佳权重
         if valid_loader is not None and best_model_weights is not None and patience_counter < patience:
             self.model.load_state_dict(best_model_weights)
         self.is_trained = True
-    # %%
     def get_proba(self, test_data: pd.DataFrame):
         if not self.is_trained:
             raise ValueError('Model not trained')
-        test_data = self._mapping(test_data, fit_bool=False)
+        test_filled = self.imputer.transform(test_data.copy())
+        test_filled = round(test_filled, self.sparse_features)
+        test_filled = self._mapping(test_filled, fit_bool=False)
         if self.standard_bool:
-            test_data = self._standardize(test_data, fit_bool=False)
-        X_tensor = torch.tensor(test_data[self.user_name].values, dtype=torch.float32)
-        y_tensor = torch.tensor(test_data[self.item_name].values, dtype=torch.long)
+            test_filled = self._standardize(test_filled, fit_bool=False)
+        X_tensor = torch.tensor(test_filled[self.user_name].values, dtype=torch.float32)
+        y_tensor = torch.zeros(len(test_filled), dtype=torch.long)
         loader = DataLoader(RecDataset(X_tensor, y_tensor), batch_size=self.kwargs['batch_size'], shuffle=False)
         self.model.eval()
         all_probs = []
@@ -228,5 +259,7 @@ class CoMICERecommend(BaseRecommender):
             for x, _ in loader:
                 x = x.to(self.device)
                 logits, _ = self.model(x)
-                all_probs.append(torch.softmax(logits, dim=1).cpu().numpy())
-        return pd.DataFrame(np.concatenate(all_probs, axis=0), index=test_data.index, columns=self.unique_item)
+                probs = torch.softmax(logits, dim=1).cpu().numpy()
+                all_probs.append(probs)
+        final_probs = np.concatenate(all_probs, axis=0)
+        return pd.DataFrame(final_probs, index=test_data.index, columns=self.unique_item)

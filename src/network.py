@@ -1,13 +1,10 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
-import pandas as pd
+from torch.utils.data import Dataset
 import numpy as np
-import copy
 import random
 import os
-# %% 设置随机种子
+# %%
 def set_seed(seed: int):
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -17,10 +14,8 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-# %% ================== 核心组件 (Layers) ==================
-
+# %%
 class FactorizationMachine(nn.Module):
-    """DeepFM FM Layer"""
     def __init__(self):
         super().__init__()
     def forward(self, inputs):
@@ -29,7 +24,6 @@ class FactorizationMachine(nn.Module):
         ix = sum_of_square - square_of_sum
         return 0.5 * torch.sum(ix, dim=1, keepdim=True)
 class CrossNetwork(nn.Module):
-    """DCN V1 Cross Network"""
     def __init__(self, input_dim, num_layers):
         super().__init__()
         self.num_layers = num_layers
@@ -43,28 +37,16 @@ class CrossNetwork(nn.Module):
             x_l = x_0 * dot_prod + self.b[i] + x_l
         return x_l
 class DCNv2Layer(nn.Module):
-    """
-    DCN V2 Cross Layer (Low-Rank Version)
-    Formula: x_{l+1} = x_0 \odot (U_l V_l^T x_l + b_l) + x_l
-    """
     def __init__(self, input_dim, low_rank=64):
         super().__init__()
         self.input_dim = input_dim
-        # V projection: d -> r
         self.v_linear = nn.Linear(input_dim, low_rank, bias=False)
-        # U projection: r -> d (includes bias b_l)
         self.u_linear = nn.Linear(low_rank, input_dim, bias=True)
-
-        # Init
         nn.init.xavier_uniform_(self.v_linear.weight)
         nn.init.xavier_uniform_(self.u_linear.weight)
     def forward(self, x_l, x_0):
-        # x_l, x_0: [Batch, d]
-        # Project down: [B, r]
         v_out = self.v_linear(x_l)
-        # Project up and add bias: [B, d] -> (W x_l + b)
         u_out = self.u_linear(v_out)
-        # Hadamard product with x_0 and add residual
         return x_0 * u_out + x_l
 class AutoIntLayer(nn.Module):
     def __init__(self, embed_dim, num_heads=2, dropout=0.1):
@@ -109,7 +91,6 @@ class BilinearInteraction(nn.Module):
             vid = torch.matmul(inputs.unsqueeze(2), self.W).squeeze(2)
         else:
             raise NotImplementedError
-
         p = vid.unsqueeze(2) * inputs.unsqueeze(1)
         triu_idx = torch.triu_indices(F, F, offset=1).to(inputs.device)
         inter = p[:, triu_idx[0], triu_idx[1], :]
@@ -131,52 +112,31 @@ class DNN(nn.Module):
         self.output_dim = in_dim
     def forward(self, x):
         return self.net(x)
-# %% ================== 模型 Backbones ==================
-
+# %%
 class WideDeepBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
-
-        # Wide Part
         self.wide_sparse = nn.ModuleList([nn.Embedding(d, 1) for d in sparse_dims])
         if dense_count > 0:
             self.wide_dense = nn.Linear(dense_count, 1)
-
-        # Deep Part
         self.deep_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
         deep_input_dim = self.num_sparse * feature_dim + dense_count
         self.dnn = DNN(deep_input_dim, hidden_units, dropout)
-
-        # --- 修正开始 ---
-        # 记录 DNN 最后一层的维度用于内部投影
         dnn_out_dim = hidden_units[-1]
-
-        # 关键修正：Backbone 最终返回的是 Wide+Deep 的求和结果，维度为 1
-        # 必须告诉 StandardModel 输出维度是 1，而不是 hidden_units[-1]
         self.output_dim = 1
-
-        # 内部用于将 Deep 部分映射到 1 维的层
         self.final_linear = nn.Linear(dnn_out_dim, 1)
-        # --- 修正结束 ---
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
-
-        # Wide Part Forward
         wide_out = sum([emb(sparse_x[:, i]) for i, emb in enumerate(self.wide_sparse)])
         if self.num_dense > 0:
             wide_out += self.wide_dense(dense_x)
-
-        # Deep Part Forward
         deep_emb = torch.cat([emb(sparse_x[:, i]) for i, emb in enumerate(self.deep_embs)], dim=1)
         deep_in = torch.cat([deep_emb, dense_x], dim=1) if self.num_dense > 0 else deep_emb
-
         deep_out = self.dnn(deep_in)
         deep_logit = self.final_linear(deep_out)
-
-        # Combine
         return wide_out + deep_logit
 class DeepFMBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, hidden_units=[256, 128], dropout=0.1):
@@ -213,7 +173,6 @@ class DeepFMBackbone(nn.Module):
         dnn_score = self.dnn_linear(dnn_out)
         return fm_1st + fm_2nd + dnn_score
 class DCNBackbone(nn.Module):
-    """Original DCN V1"""
     def __init__(self, sparse_dims, dense_count, feature_dim=16, cross_layers=3, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
         self.num_sparse = len(sparse_dims)
@@ -236,54 +195,32 @@ class DCNBackbone(nn.Module):
         deep_out = self.dnn(x_0)
         return torch.cat([cross_out, deep_out], dim=1)
 class DCNv2Backbone(nn.Module):
-    """
-    DCN V2 Backbone (Parallel Structure)
-    Uses Low-Rank approximation for the Cross Network matrix.
-    """
     def __init__(self, sparse_dims, dense_count, feature_dim=16, cross_layers=3, hidden_units=[256, 128], dropout=0.1, low_rank=64):
         super().__init__()
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
         self.embeddings = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
-
-        # DCNv2 works on the concatenated input vector (x_0)
         self.input_dim = self.num_sparse * feature_dim + dense_count
-
-        # Cross Network V2 (Low Rank)
         self.cross_layers = nn.ModuleList([
             DCNv2Layer(self.input_dim, low_rank=low_rank)
             for _ in range(cross_layers)
         ])
-
-        # Deep Network
         self.dnn = DNN(self.input_dim, hidden_units, dropout)
-
-        # Output is concatenation of CrossNet output and DeepNet output (Parallel structure)
         self.output_dim = self.input_dim + hidden_units[-1]
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
-
-        # Embedding Lookup
         sparse_embeds = [self.embeddings[i](sparse_x[:, i]) for i in range(self.num_sparse)]
         sparse_flat = torch.cat(sparse_embeds, dim=1)
-
-        # Construct x_0
         if self.num_dense > 0:
             x_0 = torch.cat([sparse_flat, dense_x], dim=1)
         else:
             x_0 = sparse_flat
-
-        # Cross Net V2 Forward
         x_l = x_0
         for layer in self.cross_layers:
             x_l = layer(x_l, x_0)
         cross_out = x_l
-
-        # Deep Net Forward
         deep_out = self.dnn(x_0)
-
-        # Parallel Combination
         return torch.cat([cross_out, deep_out], dim=1)
 class AutoIntBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=32, attention_layers=3, num_heads=2, hidden_units=[256, 128], dropout=0.1):
@@ -343,8 +280,7 @@ class FiBiNETBackbone(nn.Module):
         dnn_input = torch.cat([E_flat, V_flat, p, q], dim=1)
         output = self.dnn(dnn_input)
         return output
-# %% ================== 辅助类与 Wrapper ==================
-
+# %%
 class RecDataset(Dataset):
     def __init__(self, X, y):
         self.X = X

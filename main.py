@@ -1,5 +1,5 @@
 # %%
-from src.utils import load
+from src.utils import load, filling, round
 from src.models import *
 from src.evaluation import *
 #%%
@@ -34,22 +34,43 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
 #%%
 k = 3
 seed = 42
-train, valid, test, info = load('HIP', amount=10000, train_ratio=0.6, val_ratio=0.1) #original, dropna
+train, valid, test, info = load('HIP', amount=10000, train_ratio=0.7, val_ratio=0.1, is_dropna=True) #original, dropna
 item_name = info['item_name']
 sparse_features = info['sparse_features']
 dense_features = info['dense_features']
+# _, imputer = filling(train, method='MICE_NB', seed=42)
+# train_filled = imputer.transform(train)
+# valid_filled = imputer.transform(valid)
+# test_filled = imputer.transform(test)
+# train_filled = round(train_filled, sparse_features)
+# valid_filled = round(valid_filled, sparse_features)
+# test_filled = round(test_filled, sparse_features)
 score = []
-model = CatBRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, batch_size=2048, epochs=200)
-model.fit(train.copy())
-score.append(model.score_test(test.copy(), methods=['auc']))
-model = LGBMRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, batch_size=2048, epochs=200)
-model.fit(train.copy())
-score.append(model.score_test(test.copy(), methods=['auc']))
-print(score)
-# for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
-#     train_miss = add_missing_values(train, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
-#     test_miss = add_missing_values(test, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
-#     model = CoMICERecommend(item_name, sparse_features, dense_features, seed=42, k=k, standard_bool=True)
-#     model.fit(train_miss)
-#     score.append(model.score_test(test_miss, method='auc'))
+# model = DCNRecommend(item_name, sparse_features, dense_features, seed=seed, k=k)
+# model.fit(train_filled.copy())
+# score.append(model.score_test(test_filled.copy(), methods=['auc']))
+# model = CoMICERecommend(item_name, sparse_features, dense_features, seed=seed, k=k, num_views=3, mice_method='MICE_NB')
+# model.fit(train.copy())
+# score.append(model.score_test(test.copy(), methods=['auc']))
 # print(score)
+for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5]:
+    train_miss = add_missing_values(train, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
+    valid_miss = add_missing_values(valid, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
+    test_miss = add_missing_values(test, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
+    _, imputer = filling(train_miss, method='MICE_NB', seed=42)
+    train_filled = imputer.transform(train_miss.copy())
+    valid_filled = imputer.transform(valid_miss.copy())
+    test_filled = imputer.transform(test_miss.copy())
+    train_filled = round(train_filled, sparse_features)
+    valid_filled = round(valid_filled, sparse_features)
+    test_filled = round(test_filled, sparse_features)
+    model = DCNv2Recommend(item_name, sparse_features, dense_features, seed=seed, k=k)
+    model.fit(train_filled)
+    score.append(model.score_test(test_filled, methods=['auc']))
+    model = CoMICERecommend(item_name, sparse_features, dense_features, seed=42, k=k, num_views=3, mice_method='MICE_NB', backbone='DCNv2')
+    model.fit(train_miss)
+    score.append(model.score_test(test_miss, methods=['auc']))
+    # model = XGBRecommend(item_name, sparse_features, dense_features, seed=seed, k=k)
+    # model.fit(train_miss)
+    # score.append(model.score_test(test_miss, methods=['auc']))
+print(score)

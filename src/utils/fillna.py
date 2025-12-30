@@ -8,6 +8,7 @@ from sklearn.linear_model import BayesianRidge
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.svm import LinearSVR
 from sklearn.impute import KNNImputer
+from xgboost import XGBRegressor
 # %%
 def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42):
     if method == 'MICE_RF':
@@ -20,6 +21,9 @@ def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42)
         imputer = IterativeImputer(estimator=LinearSVR(random_state=seed), max_value=Max, min_value=Min, random_state=seed)
     elif method == 'KNN':
         imputer = KNNImputer(n_neighbors=5)
+    elif method == 'MICE_XGB':
+        xgb_estimator = XGBRegressor(random_state=seed)
+        imputer = IterativeImputer(estimator=xgb_estimator, max_value=Max, min_value=Min, random_state=seed)
     else:
         raise ValueError('method must be MICE_RF, MICE_NB, MICE_Ga, MICE_SVM, KNN')
     imputer.set_output(transform='pandas')

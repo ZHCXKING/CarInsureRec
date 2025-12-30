@@ -53,12 +53,17 @@ def _detail_info(path):
 # %%
 def load(data_type: str = 'AWM',
          amount: int | None = None,
-         train_ratio: float = 0.6,
+         train_ratio: float = 0.7,
          val_ratio: float = 0.1,
          target_name: str = 'product_item',
+         is_dropna: bool = True,
          seed: int = 42):
     root = Path(__file__).parents[2]
-    data_path = root / 'data' / data_type / 'All Data.parquet'
+    if is_dropna:
+        file = 'DropNaData.parquet'
+    else:
+        file = 'AllData.parquet'
+    data_path = root / 'data' / data_type / file
     detail_path = root / 'data' / data_type / 'Metadata.json'
     data = pd.read_parquet(data_path)
     if amount is not None:
