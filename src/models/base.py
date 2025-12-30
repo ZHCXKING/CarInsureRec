@@ -22,7 +22,7 @@ class BaseRecommender:
         self.is_trained = False
     # %%
     def fit(self, train_data: pd.DataFrame):
-        X = train_data[self.user_name]
+        X = train_data[self.user_name].copy()
         if self.standard_bool:
             X = self._standardize(X, fit_bool=True)
         y = train_data[self.item_name]
@@ -33,7 +33,7 @@ class BaseRecommender:
     def get_proba(self, test_data: pd.DataFrame):
         if not self.is_trained:
             raise ValueError('model is not trained')
-        X = test_data[self.user_name]
+        X = test_data[self.user_name].copy()
         if self.standard_bool:
             X = self._standardize(X, fit_bool=False)
         y = self.model.predict_proba(X)
@@ -77,6 +77,7 @@ class BaseRecommender:
         return final_scores
     # %%
     def _standardize(self, data: pd.DataFrame, fit_bool: bool):
+        data = data.copy()
         if self.dense_features is None:
             raise ValueError('dense_feature is None')
         if fit_bool:

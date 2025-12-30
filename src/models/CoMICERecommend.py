@@ -48,8 +48,8 @@ class CoMICERecommend(BaseRecommender):
                 num_heads=self.kwargs['num_heads'],
                 **common_args
             )
-        elif backbone_name == 'DCNv2':
-            backbone = DCNv2Backbone(
+        elif backbone_name == 'DCN':
+            backbone = DCNBackbone(
                 cross_layers=self.kwargs['cross_layers'],
                 **common_args
             )

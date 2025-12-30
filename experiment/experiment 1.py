@@ -9,7 +9,7 @@ from pathlib import Path
 # %%
 root = Path(__file__).parents[0]
 datasets = ['AWM', 'HIP', 'VID']
-models = ['DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'AutoInt', 'Hybrid']
+models = ['DCN', 'DeepFM', 'WideDeep', 'FiBiNET', 'AutoInt', 'Hybrid']
 metrics = ['auc', 'logloss', 'mrr_k', 'recall_k', 'ndcg_k']
 seeds = list(range(0, 1))
 amount = 10000

@@ -1,11 +1,13 @@
 import torch
-import random
-import os
-import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset
-# %%
+from torch.utils.data import DataLoader, Dataset
+import pandas as pd
+import numpy as np
+import copy
+import random
+import os
+# %% 设置随机种子
 def set_seed(seed: int):
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -15,9 +17,68 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-# %%
-class SeNetGate(nn.Module):
-    def __init__(self, num_fields, reduction_ratio=2):
+# %% ================== 核心组件 (Layers) ==================
+
+class FactorizationMachine(nn.Module):
+    """DeepFM FM Layer"""
+    def __init__(self):
+        super().__init__()
+    def forward(self, inputs):
+        sum_of_square = torch.sum(inputs, dim=1) ** 2
+        square_of_sum = torch.sum(inputs ** 2, dim=1)
+        ix = sum_of_square - square_of_sum
+        return 0.5 * torch.sum(ix, dim=1, keepdim=True)
+class CrossNetwork(nn.Module):
+    """DCN V1 Cross Network"""
+    def __init__(self, input_dim, num_layers):
+        super().__init__()
+        self.num_layers = num_layers
+        self.W = nn.ParameterList([nn.Parameter(torch.randn(input_dim)) for _ in range(num_layers)])
+        self.b = nn.ParameterList([nn.Parameter(torch.zeros(input_dim)) for _ in range(num_layers)])
+        for w in self.W: nn.init.xavier_uniform_(w.unsqueeze(0))
+    def forward(self, x_0):
+        x_l = x_0
+        for i in range(self.num_layers):
+            dot_prod = torch.sum(x_l * self.W[i], dim=1, keepdim=True)
+            x_l = x_0 * dot_prod + self.b[i] + x_l
+        return x_l
+class DCNv2Layer(nn.Module):
+    """
+    DCN V2 Cross Layer (Low-Rank Version)
+    Formula: x_{l+1} = x_0 \odot (U_l V_l^T x_l + b_l) + x_l
+    """
+    def __init__(self, input_dim, low_rank=64):
+        super().__init__()
+        self.input_dim = input_dim
+        # V projection: d -> r
+        self.v_linear = nn.Linear(input_dim, low_rank, bias=False)
+        # U projection: r -> d (includes bias b_l)
+        self.u_linear = nn.Linear(low_rank, input_dim, bias=True)
+
+        # Init
+        nn.init.xavier_uniform_(self.v_linear.weight)
+        nn.init.xavier_uniform_(self.u_linear.weight)
+    def forward(self, x_l, x_0):
+        # x_l, x_0: [Batch, d]
+        # Project down: [B, r]
+        v_out = self.v_linear(x_l)
+        # Project up and add bias: [B, d] -> (W x_l + b)
+        u_out = self.u_linear(v_out)
+        # Hadamard product with x_0 and add residual
+        return x_0 * u_out + x_l
+class AutoIntLayer(nn.Module):
+    def __init__(self, embed_dim, num_heads=2, dropout=0.1):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True, dropout=dropout)
+        self.W_res = nn.Linear(embed_dim, embed_dim)
+        self.relu = nn.ReLU()
+    def forward(self, x):
+        attn_out, _ = self.attn(x, x, x)
+        res_out = self.W_res(x)
+        out = self.relu(attn_out + res_out)
+        return out
+class SENETLayer(nn.Module):
+    def __init__(self, num_fields, reduction_ratio=3):
         super().__init__()
         reduced_dim = max(1, num_fields // reduction_ratio)
         self.excitation = nn.Sequential(
@@ -28,240 +89,223 @@ class SeNetGate(nn.Module):
         )
     def forward(self, x):
         z = torch.mean(x, dim=2)
-        weights = self.excitation(z)
-        return x * weights.unsqueeze(-1)
-# %%
-class SelfAttentionBlock(nn.Module):
-    def __init__(self, embed_dim, num_heads=2, dropout=0.1):
+        a = self.excitation(z)
+        return x * a.unsqueeze(-1)
+class BilinearInteraction(nn.Module):
+    def __init__(self, embed_dim, num_fields, type='Field-All'):
         super().__init__()
-        self.att = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True, dropout=dropout)
-        self.ffn = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 2),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(embed_dim * 2, embed_dim)
-        )
-        self.ln1 = nn.LayerNorm(embed_dim)
-        self.ln2 = nn.LayerNorm(embed_dim)
-    def forward(self, x):
-        att_out, _ = self.att(x, x, x)
-        x = self.ln1(x + att_out)
-        ffn_out = self.ffn(x)
-        x = self.ln2(x + ffn_out)
-        return x
-# %%
-class CrossNet(nn.Module):
-    def __init__(self, input_dim, num_layers=3):
+        self.type = type
+        if type == 'Field-All':
+            self.W = nn.Parameter(torch.randn(embed_dim, embed_dim))
+            nn.init.xavier_uniform_(self.W)
+        elif type == 'Field-Each':
+            self.W = nn.Parameter(torch.randn(num_fields, embed_dim, embed_dim))
+            nn.init.xavier_uniform_(self.W)
+    def forward(self, inputs):
+        B, F, E = inputs.shape
+        if self.type == 'Field-All':
+            vid = torch.matmul(inputs, self.W)
+        elif self.type == 'Field-Each':
+            vid = torch.matmul(inputs.unsqueeze(2), self.W).squeeze(2)
+        else:
+            raise NotImplementedError
+
+        p = vid.unsqueeze(2) * inputs.unsqueeze(1)
+        triu_idx = torch.triu_indices(F, F, offset=1).to(inputs.device)
+        inter = p[:, triu_idx[0], triu_idx[1], :]
+        return inter.reshape(B, -1)
+class DNN(nn.Module):
+    def __init__(self, input_dim, hidden_units, dropout=0.0):
         super().__init__()
-        self.num_layers = num_layers
-        self.W = nn.ParameterList([nn.Parameter(torch.empty(input_dim, input_dim)) for _ in range(num_layers)])
-        self.b = nn.ParameterList([nn.Parameter(torch.empty(input_dim)) for _ in range(num_layers)])
-        for w in self.W: nn.init.xavier_uniform_(w)
-        for b in self.b: nn.init.zeros_(b)
-    def forward(self, x_0):
-        x_l = x_0
-        for i in range(self.num_layers):
-            x_l = x_0 * (torch.mm(x_l, self.W[i]) + self.b[i]) + x_l
-        return x_l
-# %%
-class AutoIntLayer(nn.Module):
-    def __init__(self, embed_dim, num_heads=2, dropout=0.1):
-        super().__init__()
-        self.att = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True, dropout=dropout)
-        self.linear_project = nn.Linear(embed_dim, embed_dim)
-        self.layer_norm = nn.LayerNorm(embed_dim)
-        self.dropout = nn.Dropout(dropout)
-    def forward(self, x):
-        att_out, _ = self.att(x, x, x)
-        out = self.layer_norm(x + self.dropout(att_out))
-        out = F.relu(self.linear_project(out))
-        return out
-# %%
-class HybridBackbone(nn.Module):
-    def __init__(self, sparse_dims, dense_count, feature_dim=32, cross_layers=3,
-                 attention_layers=1, num_heads=2, hidden_units=[256, 128], dropout=0.1):
-        super().__init__()
-        self.num_sparse = len(sparse_dims)
-        self.num_dense = dense_count
-        self.sparse_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
-        if dense_count > 0:
-            self.dense_proj = nn.ModuleList([nn.Linear(1, feature_dim) for _ in range(dense_count)])
-        self.num_fields = self.num_sparse + self.num_dense
-        self.total_input_dim = self.num_fields * feature_dim
-        # SeNet
-        self.senet = SeNetGate(self.num_fields)
-        # CrossNet
-        self.cross_net = CrossNet(self.total_input_dim, num_layers=cross_layers)
-        # Deep Net
         layers = []
-        last_dim = self.total_input_dim
+        in_dim = input_dim
         for hidden in hidden_units:
             layers.extend([
-                nn.Linear(last_dim, hidden),
+                nn.Linear(in_dim, hidden),
                 nn.BatchNorm1d(hidden),
                 nn.ReLU(),
                 nn.Dropout(dropout)
             ])
-            last_dim = hidden
-        self.deep_net = nn.Sequential(*layers)
-        # Attention Tower (修改为支持多层堆叠)
-        # 使用 ModuleList 根据 attention_layers 循环创建 Block
-        self.att_layers = nn.ModuleList([
-            SelfAttentionBlock(feature_dim, num_heads=num_heads, dropout=dropout)
-            for _ in range(attention_layers)
-        ])
-        # Attention 模块输出维度与输入维度相同 (feature_dim * num_fields)
-        att_out_dim = self.total_input_dim
-        self.output_dim = self.total_input_dim + hidden_units[-1] + att_out_dim
+            in_dim = hidden
+        self.net = nn.Sequential(*layers)
+        self.output_dim = in_dim
     def forward(self, x):
-        sparse_x = x[:, :self.num_sparse].long()
-        embs = [emb(sparse_x[:, i]) for i, emb in enumerate(self.sparse_embs)]
-        if self.num_dense > 0:
-            dense_x = x[:, self.num_sparse:]
-            embs.extend([self.dense_proj[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)])
-        stacked_embs = torch.stack(embs, dim=1)  # [B, Fields, D]
-        gated_embs = self.senet(stacked_embs)  # [B, Fields, D]
-        flat_input = gated_embs.view(x.size(0), -1)
-        # Cross Output & Deep Output
-        outputs = [self.cross_net(flat_input), self.deep_net(flat_input)]
-        # Attention Output (循环通过多层)
-        att_out = gated_embs
-        for layer in self.att_layers:
-            att_out = layer(att_out)
-        outputs.append(att_out.view(x.size(0), -1))
-        return torch.cat(outputs, dim=1)
-# %%
-class DCNBackbone(nn.Module):
-    def __init__(self, sparse_dims, dense_count, feature_dim=32, cross_layers=3,
-                 hidden_units=[256, 128], dropout=0.1):
+        return self.net(x)
+# %% ================== 模型 Backbones ==================
+
+class WideDeepBackbone(nn.Module):
+    def __init__(self, sparse_dims, dense_count, feature_dim=16, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
-        self.sparse_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
+
+        # Wide Part
+        self.wide_sparse = nn.ModuleList([nn.Embedding(d, 1) for d in sparse_dims])
         if dense_count > 0:
-            self.dense_proj = nn.ModuleList([nn.Linear(1, feature_dim) for _ in range(dense_count)])
-        self.total_input_dim = (self.num_sparse + self.num_dense) * feature_dim
-        self.cross_net = CrossNet(self.total_input_dim, num_layers=cross_layers)
-        layers = []
-        last_dim = self.total_input_dim
-        for hidden in hidden_units:
-            layers.extend([
-                nn.Linear(last_dim, hidden),
-                nn.BatchNorm1d(hidden),
-                nn.ReLU(),
-                nn.Dropout(dropout)
-            ])
-            last_dim = hidden
-        self.deep_net = nn.Sequential(*layers)
-        self.output_dim = self.total_input_dim + hidden_units[-1]
-    # %%
+            self.wide_dense = nn.Linear(dense_count, 1)
+
+        # Deep Part
+        self.deep_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
+        deep_input_dim = self.num_sparse * feature_dim + dense_count
+        self.dnn = DNN(deep_input_dim, hidden_units, dropout)
+
+        # --- 修正开始 ---
+        # 记录 DNN 最后一层的维度用于内部投影
+        dnn_out_dim = hidden_units[-1]
+
+        # 关键修正：Backbone 最终返回的是 Wide+Deep 的求和结果，维度为 1
+        # 必须告诉 StandardModel 输出维度是 1，而不是 hidden_units[-1]
+        self.output_dim = 1
+
+        # 内部用于将 Deep 部分映射到 1 维的层
+        self.final_linear = nn.Linear(dnn_out_dim, 1)
+        # --- 修正结束 ---
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
-        embs = [emb(sparse_x[:, i]) for i, emb in enumerate(self.sparse_embs)]
+
+        # Wide Part Forward
+        wide_out = sum([emb(sparse_x[:, i]) for i, emb in enumerate(self.wide_sparse)])
         if self.num_dense > 0:
-            embs.extend([self.dense_proj[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)])
-        x_0 = torch.cat(embs, dim=1)
-        return torch.cat([self.cross_net(x_0), self.deep_net(x_0)], dim=1)
-# %%
+            wide_out += self.wide_dense(dense_x)
+
+        # Deep Part Forward
+        deep_emb = torch.cat([emb(sparse_x[:, i]) for i, emb in enumerate(self.deep_embs)], dim=1)
+        deep_in = torch.cat([deep_emb, dense_x], dim=1) if self.num_dense > 0 else deep_emb
+
+        deep_out = self.dnn(deep_in)
+        deep_logit = self.final_linear(deep_out)
+
+        # Combine
+        return wide_out + deep_logit
 class DeepFMBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
         self.embeddings = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
-        self.linear_sparse = nn.ModuleList([nn.Embedding(d, 1) for d in sparse_dims])
-        if dense_count > 0: self.linear_dense = nn.Linear(dense_count, 1)
-        input_dim = self.num_sparse * feature_dim + dense_count
-        layers = []
-        last_dim = input_dim
-        for hidden in hidden_units:
-            layers.extend([
-                nn.Linear(last_dim, hidden),
-                nn.BatchNorm1d(hidden),
-                nn.ReLU(),
-                nn.Dropout(dropout)
-            ])
-            last_dim = hidden
-        self.dnn = nn.Sequential(*layers)
-        self.output_dim = hidden_units[-1]
-        self.adapter = nn.Linear(1, self.output_dim)
-    # %%
+        if dense_count > 0:
+            self.dense_embs = nn.ModuleList([nn.Linear(1, feature_dim) for _ in range(dense_count)])
+        self.fm_1st_sparse = nn.ModuleList([nn.Embedding(d, 1) for d in sparse_dims])
+        if dense_count > 0:
+            self.fm_1st_dense = nn.ModuleList([nn.Linear(1, 1) for _ in range(dense_count)])
+        total_fields = self.num_sparse + dense_count
+        dnn_input_dim = total_fields * feature_dim
+        self.dnn = DNN(dnn_input_dim, hidden_units, dropout)
+        self.dnn_linear = nn.Linear(hidden_units[-1], 1)
+        self.fm_2nd = FactorizationMachine()
+        self.output_dim = 1
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
-        lin_out = sum([emb(sparse_x[:, i]) for i, emb in enumerate(self.linear_sparse)])
-        if self.num_dense > 0: lin_out += self.linear_dense(dense_x)
-        emb_stack = torch.stack([emb(sparse_x[:, i]) for i, emb in enumerate(self.embeddings)], dim=1)
-        sum_sq = torch.pow(torch.sum(emb_stack, dim=1), 2)
-        sq_sum = torch.sum(torch.pow(emb_stack, 2), dim=1)
-        fm_out = 0.5 * torch.sum(sum_sq - sq_sum, dim=1, keepdim=True)
-        dnn_in = emb_stack.view(x.size(0), -1)
-        if self.num_dense > 0: dnn_in = torch.cat([dnn_in, dense_x], dim=1)
+        sparse_embeds = [self.embeddings[i](sparse_x[:, i]) for i in range(self.num_sparse)]
+        dense_embeds = []
+        if self.num_dense > 0:
+            dense_embeds = [self.dense_embs[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)]
+        all_embeds = sparse_embeds + dense_embeds
+        embed_stack = torch.stack(all_embeds, dim=1)
+        fm_1st = sum([self.fm_1st_sparse[i](sparse_x[:, i]) for i in range(self.num_sparse)])
+        if self.num_dense > 0:
+            fm_1st += sum([self.fm_1st_dense[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)])
+        fm_2nd = self.fm_2nd(embed_stack)
+        dnn_in = embed_stack.view(x.size(0), -1)
         dnn_out = self.dnn(dnn_in)
-        return dnn_out + self.adapter(lin_out + fm_out)
-# %%
-class WideDeepBackbone(nn.Module):
-    def __init__(self, sparse_dims, dense_count, feature_dim=16, hidden_units=[256, 128], dropout=0.1):
+        dnn_score = self.dnn_linear(dnn_out)
+        return fm_1st + fm_2nd + dnn_score
+class DCNBackbone(nn.Module):
+    """Original DCN V1"""
+    def __init__(self, sparse_dims, dense_count, feature_dim=16, cross_layers=3, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
-        self.wide_sparse = nn.ModuleList([nn.Embedding(d, 1) for d in sparse_dims])
-        if dense_count > 0: self.wide_dense = nn.Linear(dense_count, 1)
-        self.deep_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
-        input_dim = self.num_sparse * feature_dim + dense_count
-        layers = []
-        last_dim = input_dim
-        for hidden in hidden_units:
-            layers.extend([
-                nn.Linear(last_dim, hidden),
-                nn.BatchNorm1d(hidden),
-                nn.ReLU(),
-                nn.Dropout(dropout)
-            ])
-            last_dim = hidden
-        self.dnn = nn.Sequential(*layers)
-        self.output_dim = hidden_units[-1]
-        self.adapter = nn.Linear(1, self.output_dim)
-    # %%
+        self.embeddings = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
+        self.input_dim = self.num_sparse * feature_dim + dense_count
+        self.cross_net = CrossNetwork(self.input_dim, cross_layers)
+        self.dnn = DNN(self.input_dim, hidden_units, dropout)
+        self.output_dim = self.input_dim + hidden_units[-1]
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
-        wide_out = sum([emb(sparse_x[:, i]) for i, emb in enumerate(self.wide_sparse)])
-        if self.num_dense > 0: wide_out += self.wide_dense(dense_x)
-        deep_in = torch.cat([emb(sparse_x[:, i]) for i, emb in enumerate(self.deep_embs)], dim=1)
-        if self.num_dense > 0: deep_in = torch.cat([deep_in, dense_x], dim=1)
-        deep_out = self.dnn(deep_in)
-        return deep_out + self.adapter(wide_out)
-# %%
+        sparse_embeds = [self.embeddings[i](sparse_x[:, i]) for i in range(self.num_sparse)]
+        sparse_flat = torch.cat(sparse_embeds, dim=1)
+        if self.num_dense > 0:
+            x_0 = torch.cat([sparse_flat, dense_x], dim=1)
+        else:
+            x_0 = sparse_flat
+        cross_out = self.cross_net(x_0)
+        deep_out = self.dnn(x_0)
+        return torch.cat([cross_out, deep_out], dim=1)
+class DCNv2Backbone(nn.Module):
+    """
+    DCN V2 Backbone (Parallel Structure)
+    Uses Low-Rank approximation for the Cross Network matrix.
+    """
+    def __init__(self, sparse_dims, dense_count, feature_dim=16, cross_layers=3, hidden_units=[256, 128], dropout=0.1, low_rank=64):
+        super().__init__()
+        self.num_sparse = len(sparse_dims)
+        self.num_dense = dense_count
+        self.embeddings = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
+
+        # DCNv2 works on the concatenated input vector (x_0)
+        self.input_dim = self.num_sparse * feature_dim + dense_count
+
+        # Cross Network V2 (Low Rank)
+        self.cross_layers = nn.ModuleList([
+            DCNv2Layer(self.input_dim, low_rank=low_rank)
+            for _ in range(cross_layers)
+        ])
+
+        # Deep Network
+        self.dnn = DNN(self.input_dim, hidden_units, dropout)
+
+        # Output is concatenation of CrossNet output and DeepNet output (Parallel structure)
+        self.output_dim = self.input_dim + hidden_units[-1]
+    def forward(self, x):
+        sparse_x = x[:, :self.num_sparse].long()
+        dense_x = x[:, self.num_sparse:]
+
+        # Embedding Lookup
+        sparse_embeds = [self.embeddings[i](sparse_x[:, i]) for i in range(self.num_sparse)]
+        sparse_flat = torch.cat(sparse_embeds, dim=1)
+
+        # Construct x_0
+        if self.num_dense > 0:
+            x_0 = torch.cat([sparse_flat, dense_x], dim=1)
+        else:
+            x_0 = sparse_flat
+
+        # Cross Net V2 Forward
+        x_l = x_0
+        for layer in self.cross_layers:
+            x_l = layer(x_l, x_0)
+        cross_out = x_l
+
+        # Deep Net Forward
+        deep_out = self.dnn(x_0)
+
+        # Parallel Combination
+        return torch.cat([cross_out, deep_out], dim=1)
 class AutoIntBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=32, attention_layers=3, num_heads=2, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
-        self.feature_dim = feature_dim
         self.sparse_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
         if dense_count > 0:
             self.dense_proj = nn.ModuleList([nn.Linear(1, feature_dim) for _ in range(dense_count)])
-        self.num_fields = self.num_sparse + self.num_dense
         self.att_layers = nn.ModuleList([
             AutoIntLayer(feature_dim, num_heads=num_heads, dropout=dropout)
             for _ in range(attention_layers)
         ])
-        self.total_input_dim = self.num_fields * feature_dim
-        layers = []
-        last_dim = self.total_input_dim
-        for hidden in hidden_units:
-            layers.extend([nn.Linear(last_dim, hidden), nn.BatchNorm1d(hidden), nn.ReLU(), nn.Dropout(dropout)])
-            last_dim = hidden
-        self.dnn = nn.Sequential(*layers)
+        num_fields = self.num_sparse + dense_count
+        self.flat_dim = num_fields * feature_dim
+        self.dnn = DNN(self.flat_dim, hidden_units, dropout)
         self.output_dim = hidden_units[-1]
-    # %%
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
-        embs = [emb(sparse_x[:, i]) for i, emb in enumerate(self.sparse_embs)]
+        dense_x = x[:, self.num_sparse:]
+        embs = [self.sparse_embs[i](sparse_x[:, i]) for i in range(self.num_sparse)]
         if self.num_dense > 0:
-            dense_x = x[:, self.num_sparse:]
             embs.extend([self.dense_proj[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)])
         att_input = torch.stack(embs, dim=1)
         for layer in self.att_layers:
@@ -269,117 +313,38 @@ class AutoIntBackbone(nn.Module):
         flat_input = att_input.reshape(x.size(0), -1)
         output = self.dnn(flat_input)
         return output
-# %%
 class FiBiNETBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=32, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
-        self.feature_dim = feature_dim
+        num_fields = self.num_sparse + dense_count
         self.sparse_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
         if dense_count > 0:
             self.dense_proj = nn.ModuleList([nn.Linear(1, feature_dim) for _ in range(dense_count)])
-        self.num_fields = self.num_sparse + self.num_dense
-        self.senet = SeNetGate(self.num_fields, reduction_ratio=2)
-        self.num_pairs = self.num_fields * (self.num_fields - 1) // 2
-        self.bilinear_dim = self.num_pairs * feature_dim
-        total_input_dim = (self.num_fields * feature_dim * 2) + (self.bilinear_dim * 2)
-        layers = []
-        last_dim = total_input_dim
-        for hidden in hidden_units:
-            layers.extend([
-                nn.Linear(last_dim, hidden),
-                nn.BatchNorm1d(hidden),
-                nn.ReLU(),
-                nn.Dropout(dropout)
-            ])
-            last_dim = hidden
-        self.deep_net = nn.Sequential(*layers)
+        self.senet = SENETLayer(num_fields, reduction_ratio=3)
+        self.bilinear = BilinearInteraction(feature_dim, num_fields, type='Field-All')
+        num_pairs = num_fields * (num_fields - 1) // 2
+        deep_input_dim = (num_fields * feature_dim * 2) + (num_pairs * feature_dim * 2)
+        self.dnn = DNN(deep_input_dim, hidden_units, dropout)
         self.output_dim = hidden_units[-1]
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
-        embs = [emb(sparse_x[:, i]) for i, emb in enumerate(self.sparse_embs)]
+        dense_x = x[:, self.num_sparse:]
+        embs = [self.sparse_embs[i](sparse_x[:, i]) for i in range(self.num_sparse)]
         if self.num_dense > 0:
-            dense_x = x[:, self.num_sparse:]
             embs.extend([self.dense_proj[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)])
         E = torch.stack(embs, dim=1)
-        E_se = self.senet(E)
-        def get_interactions(embeddings):
-            B, F, D = embeddings.shape
-            hadamard = embeddings.unsqueeze(2) * embeddings.unsqueeze(1)
-            triu_idx = torch.triu_indices(F, F, offset=1).to(embeddings.device)
-            inter = hadamard[:, triu_idx[0], triu_idx[1], :]
-            return inter.reshape(B, -1)
-        Z_flat = get_interactions(E)
-        Z_se_flat = get_interactions(E_se)
+        V = self.senet(E)
+        p = self.bilinear(E)
+        q = self.bilinear(V)
         E_flat = E.view(E.size(0), -1)
-        E_se_flat = E_se.view(E_se.size(0), -1)
-        concatenated = torch.cat([E_flat, E_se_flat, Z_flat, Z_se_flat], dim=1)
-        out = self.deep_net(concatenated)
-        return out
-# %%
-class TabularAugmentation(nn.Module):
-    def __init__(self, num_sparse, num_dense, mask_prob=0.2, noise_std=0.0):
-        super().__init__()
-        self.num_sparse = num_sparse
-        self.num_dense = num_dense
-        self.mask_prob = mask_prob
-        self.noise_std = noise_std
-    def forward(self, x):
-        if not self.training:
-            return x
-        x_aug = x.clone()
-        # 1. Mask Sparse Features (前 num_sparse 列)
-        if self.num_sparse > 0 and self.mask_prob > 0:
-            sparse_part = x_aug[:, :self.num_sparse]
-            # 生成 mask: True 表示该位置会被置为 0
-            mask = torch.rand_like(sparse_part, dtype=torch.float) < self.mask_prob
-            # 注意：这里直接操作 float tensor，假设 backbone 会处理 float 输入转 int
-            sparse_part[mask] = 0.0
-            x_aug[:, :self.num_sparse] = sparse_part
-        # 2. Add Noise to Dense Features (后 num_dense 列)
-        if self.num_dense > 0 and self.noise_std > 0:
-            dense_part = x_aug[:, self.num_sparse:]
-            noise = torch.randn_like(dense_part) * self.noise_std
-            x_aug[:, self.num_sparse:] = dense_part + noise
-        return x_aug
-# %%
-class CoMICEHead(nn.Module):
-    def __init__(self, input_dim, num_classes, proj_dim=128, hidden_dim=256, dropout_rate=0.1):
-        super().__init__()
-        self.projection_head = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, proj_dim)
-        )
-        self.classifier_head = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(hidden_dim, num_classes)
-        )
-        self.apply(self._init_weights)
-    def _init_weights(self, m):
-        if isinstance(m, nn.Linear):
-            nn.init.xavier_uniform_(m.weight)
-            if m.bias is not None: nn.init.constant_(m.bias, 0)
-    def forward(self, feature_vector):
-        proj_feat = self.projection_head(feature_vector)
-        proj_norm = F.normalize(proj_feat, dim=1)
-        logits = self.classifier_head(feature_vector)
-        return logits, proj_norm
-# %%
-class CoMICEModel(nn.Module):
-    def __init__(self, backbone, head):
-        super().__init__()
-        self.backbone = backbone
-        self.head = head
-    def forward(self, x):
-        features = self.backbone(x)
-        return self.head(features)
-# %%
+        V_flat = V.view(V.size(0), -1)
+        dnn_input = torch.cat([E_flat, V_flat, p, q], dim=1)
+        output = self.dnn(dnn_input)
+        return output
+# %% ================== 辅助类与 Wrapper ==================
+
 class RecDataset(Dataset):
     def __init__(self, X, y):
         self.X = X

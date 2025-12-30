@@ -7,7 +7,7 @@ from src.models import *
 # --- 公共配置 ---
 ROOT = Path(__file__).parents[0]
 DATASETS = ['AWM', 'HIP', 'VID']
-MODELS = ['DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'AutoInt', 'CoMICE']
+MODELS = ['DCN', 'DeepFM', 'WideDeep', 'FiBiNET', 'AutoInt', 'CoMICE']
 DEFAULT_PARAMS = {
     'lr': 1e-3,
     'batch_size': 2048,

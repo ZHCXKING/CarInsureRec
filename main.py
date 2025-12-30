@@ -1,6 +1,4 @@
 # %%
-from sympy.physics.units import temperature
-
 from src.utils import load
 from src.models import *
 from src.evaluation import *
@@ -41,11 +39,11 @@ item_name = info['item_name']
 sparse_features = info['sparse_features']
 dense_features = info['dense_features']
 score = []
-model = CoMICERecommend(item_name, sparse_features, dense_features, seed=seed, k=k, backbone='AutoInt', batch_size=2048, epochs=200)
-model.fit(train.copy(), valid.copy())
+model = CatBRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, batch_size=2048, epochs=200)
+model.fit(train.copy())
 score.append(model.score_test(test.copy(), methods=['auc']))
-model = DCNRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, batch_size=2048, epochs=200)
-model.fit(train.copy(), valid.copy())
+model = LGBMRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, batch_size=2048, epochs=200)
+model.fit(train.copy())
 score.append(model.score_test(test.copy(), methods=['auc']))
 print(score)
 # for missing_rate in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
