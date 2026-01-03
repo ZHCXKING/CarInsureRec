@@ -62,15 +62,7 @@ class ContrastiveModel(nn.Module):
         super().__init__()
         self.backbone = backbone
         output_dim = getattr(backbone, 'output_dim', None)
-        if output_dim is None:
-            raise ValueError("Backbone must have 'output_dim' attribute")
-        if output_dim == 1 and num_classes > 2:
-            self.classifier_head = nn.Linear(1, num_classes)
-        elif output_dim == 1 and num_classes == 2:
-            self.classifier_head = nn.Identity()
-        else:
-            self.classifier_head = nn.Linear(output_dim, num_classes)
-
+        self.classifier_head = nn.Linear(output_dim, num_classes)
         self.projection_head = nn.Sequential(
             nn.Linear(output_dim, output_dim),
             nn.ReLU(),
@@ -98,9 +90,9 @@ class CoMICERecommend(BaseRecommender):
             'hidden_units': [256, 128],
             'dropout': 0.1,
             'cross_layers': 3,
+            'low_rank': 64,
             'attention_layers': 3,
             'num_heads': 2,
-            'low_rank': 64,
             'mice_method': 'MICE_NB',
             'num_views': 3
         }

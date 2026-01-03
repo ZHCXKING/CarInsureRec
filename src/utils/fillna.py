@@ -29,10 +29,11 @@ def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42)
     imputer.set_output(transform='pandas')
     return imputer
 # %%
-def round(df: pd.DataFrame, sparse_features: list):
+def round(df: pd.DataFrame, sparse_features: list, item_name: str='product_item'):
     for col in sparse_features:
         df[col] = np.round(df[col])
         df[col] = df[col].astype('int64')
+    df[item_name] = df[item_name].astype('int64')
     return df
 # %%
 def filling(df: pd.DataFrame, method: str = 'iterative_NB', seed: int = 42):

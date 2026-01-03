@@ -13,16 +13,8 @@ class StandardModel(nn.Module):
         super().__init__()
         self.backbone = backbone
         self.is_binary = is_binary
-
-        if hasattr(backbone, 'output_dim'):
-            if backbone.output_dim == 1 and num_classes > 2:
-                self.classifier_head = nn.Linear(1, num_classes)
-            elif backbone.output_dim == 1 and num_classes == 2:
-                self.classifier_head = nn.Identity()
-            else:
-                self.classifier_head = nn.Linear(backbone.output_dim, num_classes)
-        else:
-            self.classifier_head = nn.Linear(backbone.output_dim, num_classes)
+        output_dim = getattr(backbone, 'output_dim', None)
+        self.classifier_head = nn.Linear(output_dim, num_classes)
     def forward(self, x):
         features = self.backbone(x)
         logits = self.classifier_head(features)

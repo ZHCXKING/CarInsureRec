@@ -27,7 +27,7 @@ class BNRecommend(BaseRecommender):
         default_params = {
             'learningMethod': 'MIIC',
             'scoringType': 'BIC',
-            'discretizationStrategy': 'uniform',
+            'discretizationStrategy': 'quantile',
             'discretizationNbBins': 5
         }
         model_params = ['learningMethod', 'scoringType', 'discretizationStrategy', 'discretizationNbBins']

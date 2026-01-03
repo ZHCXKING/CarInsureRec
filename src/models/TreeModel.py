@@ -13,12 +13,10 @@ class XGBRecommend(BaseRecommender):
         default_params = {
             'n_estimators': None,
             'learning_rate': None,
-            'booster': 'gbtree',
             'max_depth': None,
-            'early_stopping_rounds': None,
             'random_state': self.seed
         }
-        model_params = ['n_estimators', 'learning_rate', 'booster', 'max_depth', 'early_stopping_rounds', 'random_state']
+        model_params = ['n_estimators', 'learning_rate', 'max_depth', 'random_state']
         self.kwargs.update(default_params)
         self.kwargs.update(kwargs)
         model_params = {key: self.kwargs[key] for key in model_params}
@@ -31,12 +29,10 @@ class LGBMRecommend(BaseRecommender):
         default_params = {
             'learning_rate': 0.1,
             'n_estimators': 100,
-            'num_leaves': 31,
             'max_depth': -1,
-            'boosting_type': 'gbdt',
             'random_state': self.seed
         }
-        model_params = ['learning_rate', 'n_estimators', 'num_leaves', 'max_depth', 'boosting_type', 'random_state']
+        model_params = ['learning_rate', 'n_estimators', 'max_depth', 'random_state']
         self.kwargs.update(default_params)
         self.kwargs.update(kwargs)
         model_params = {key: self.kwargs[key] for key in model_params}
@@ -46,10 +42,12 @@ class CatBRecommend(BaseRecommender):
     def __init__(self, item_name: str, sparse_features: list, dense_features: list,
                  standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
         super().__init__('CatBoost', item_name, sparse_features, dense_features, standard_bool, seed, k)
+        n_estimators = kwargs.get('n_estimators', 200)
+        max_depth = kwargs.get('max_depth', None)
         default_params = {
-            'iterations': 200,
+            'iterations': n_estimators,
             'learning_rate': None,
-            'depth': None,
+            'depth': max_depth,
             'allow_writing_files': False,
             'verbose': True,
             'cat_features': self.sparse_features,
@@ -88,11 +86,10 @@ class RFRecommend(BaseRecommender):
         super().__init__('RF', item_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'n_estimators': 100,
-            'criterion': 'gini',
             'max_depth': None,
             'random_state': self.seed
         }
-        model_params = ['n_estimators', 'criterion', 'max_depth', 'random_state']
+        model_params = ['n_estimators', 'max_depth', 'random_state']
         self.kwargs.update(default_params)
         self.kwargs.update(kwargs)
         model_params = {key: self.kwargs[key] for key in model_params}

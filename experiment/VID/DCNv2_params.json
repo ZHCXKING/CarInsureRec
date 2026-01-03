@@ -6,9 +6,9 @@
     "hidden_units": [
         512
     ],
-    "dropout": 0.2,
+    "dropout": 0.1,
     "cross_layers": 3,
-    "low_rank": 64,
+    "low_rank": 32,
     "attention_layers": 3,
     "num_heads": 2
 }

@@ -124,20 +124,14 @@ class WideDeepBackbone(nn.Module):
         self.deep_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
         deep_input_dim = self.num_sparse * feature_dim + dense_count
         self.dnn = DNN(deep_input_dim, hidden_units, dropout)
-        dnn_out_dim = hidden_units[-1]
-        self.output_dim = 1
-        self.final_linear = nn.Linear(dnn_out_dim, 1)
+        self.output_dim = hidden_units[-1]  # 输出向量维度
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
-        wide_out = sum([emb(sparse_x[:, i]) for i, emb in enumerate(self.wide_sparse)])
-        if self.num_dense > 0:
-            wide_out += self.wide_dense(dense_x)
         deep_emb = torch.cat([emb(sparse_x[:, i]) for i, emb in enumerate(self.deep_embs)], dim=1)
         deep_in = torch.cat([deep_emb, dense_x], dim=1) if self.num_dense > 0 else deep_emb
         deep_out = self.dnn(deep_in)
-        deep_logit = self.final_linear(deep_out)
-        return wide_out + deep_logit
+        return deep_out
 class DeepFMBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
@@ -149,12 +143,11 @@ class DeepFMBackbone(nn.Module):
         self.fm_1st_sparse = nn.ModuleList([nn.Embedding(d, 1) for d in sparse_dims])
         if dense_count > 0:
             self.fm_1st_dense = nn.ModuleList([nn.Linear(1, 1) for _ in range(dense_count)])
+        self.fm_2nd = FactorizationMachine()
         total_fields = self.num_sparse + dense_count
         dnn_input_dim = total_fields * feature_dim
         self.dnn = DNN(dnn_input_dim, hidden_units, dropout)
-        self.dnn_linear = nn.Linear(hidden_units[-1], 1)
-        self.fm_2nd = FactorizationMachine()
-        self.output_dim = 1
+        self.output_dim = hidden_units[-1]
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
@@ -164,14 +157,9 @@ class DeepFMBackbone(nn.Module):
             dense_embeds = [self.dense_embs[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)]
         all_embeds = sparse_embeds + dense_embeds
         embed_stack = torch.stack(all_embeds, dim=1)
-        fm_1st = sum([self.fm_1st_sparse[i](sparse_x[:, i]) for i in range(self.num_sparse)])
-        if self.num_dense > 0:
-            fm_1st += sum([self.fm_1st_dense[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)])
-        fm_2nd = self.fm_2nd(embed_stack)
         dnn_in = embed_stack.view(x.size(0), -1)
         dnn_out = self.dnn(dnn_in)
-        dnn_score = self.dnn_linear(dnn_out)
-        return fm_1st + fm_2nd + dnn_score
+        return dnn_out
 class DCNBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, cross_layers=3, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
