@@ -1,4 +1,5 @@
 # %%
+import torch
 from sklearn.preprocessing import StandardScaler
 from src.evaluation import *
 # %%
@@ -70,6 +71,8 @@ class BaseRecommender:
                 scores_dict['recall_k'] = recall_k(item, topk_item, self.k)
             elif m == 'ndcg_k':
                 scores_dict['ndcg_k'] = ndcg_k(item, topk_item, self.k)
+            elif m == 'hr_k':
+                scores_dict['hr_k'] = hr_k(item, topk_item, self.k)
         # 3. 按照输入 methods 的顺序构造返回列表
         final_scores = []
         for m in methods:
@@ -99,3 +102,22 @@ class BaseRecommender:
             for col in self.sparse_features:
                 data[col] = data[col].map(self.mapping[col]).fillna(0).astype('int64')
         return data
+    # %%
+    def save(self, filepath):
+        if not self.is_trained:
+            raise ValueError("Model has not been trained yet.")
+        if self.model is not None and isinstance(self.model, torch.nn.Module):
+            self.model.cpu()
+        torch.save(self, filepath)
+    # %%
+    @staticmethod
+    def load(filepath, device: str = None):
+        recommender = torch.load(filepath, map_location='cpu', weights_only=False)
+        if hasattr(recommender, 'model') and isinstance(recommender.model, torch.nn.Module):
+            if device is None:
+                device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            recommender.model.to(device)
+            if hasattr(recommender, 'device'):
+                recommender.device = device
+            recommender.model.eval()
+        return recommender

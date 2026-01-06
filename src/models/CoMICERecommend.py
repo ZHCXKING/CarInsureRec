@@ -84,7 +84,7 @@ class CoMICERecommend(BaseRecommender):
             'epochs': 200,
             'lambda_nce': 1.0,
             'temperature': 0.1,
-            'proj_dim': 32,
+            'proj_dim': 64,
             'backbone': 'DCN',
             'feature_dim': 32,
             'hidden_units': [256, 128],

@@ -9,6 +9,7 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.svm import LinearSVR
 from sklearn.impute import KNNImputer
 from xgboost import XGBRegressor
+from lightgbm import LGBMRegressor
 # %%
 def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42):
     if method == 'MICE_RF':
@@ -24,8 +25,11 @@ def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42)
     elif method == 'MICE_XGB':
         xgb_estimator = XGBRegressor(random_state=seed)
         imputer = IterativeImputer(estimator=xgb_estimator, max_value=Max, min_value=Min, random_state=seed)
+    elif method == 'MICE_LGBM':
+        lgbm_estimator = LGBMRegressor(random_state=seed)
+        imputer = IterativeImputer(estimator=lgbm_estimator, max_value=Max, min_value=Min, random_state=seed)
     else:
-        raise ValueError('method must be MICE_RF, MICE_NB, MICE_Ga, MICE_SVM, KNN')
+        raise ValueError('method must is not supported')
     imputer.set_output(transform='pandas')
     return imputer
 # %%
@@ -41,3 +45,13 @@ def filling(df: pd.DataFrame, method: str = 'iterative_NB', seed: int = 42):
     imputer = select_interpolation(Max, Min, method, seed)
     df = imputer.fit_transform(df)
     return df, imputer
+# %%
+def get_filled_data(train, valid, test, sparse_features, method='MICE_NB', seed=42):
+    _, imputer = filling(train.copy(), method=method, seed=seed)
+    train_filled = imputer.transform(train.copy())
+    valid_filled = imputer.transform(valid.copy())
+    test_filled = imputer.transform(test.copy())
+    train_filled = round(train_filled, sparse_features)
+    valid_filled = round(valid_filled, sparse_features)
+    test_filled = round(test_filled, sparse_features)
+    return train_filled, valid_filled, test_filled

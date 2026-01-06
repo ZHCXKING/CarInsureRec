@@ -26,6 +26,17 @@ def recall_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
             recalls.append(0)
     return np.mean(recalls)
 # %%
+def hr_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
+    hits = []
+    for index in topk_item.index:
+        true_item = item[index]
+        predicted_top_k = topk_item.loc[index].values[:k]
+        if true_item in predicted_top_k:
+            hits.append(1)
+        else:
+            hits.append(0)
+    return np.mean(hits)
+# %%
 def ndcg_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
     ndcg_scores = []
     for index, row in topk_item.iterrows():
@@ -41,7 +52,7 @@ def ndcg_k(item: pd.Series, topk_item: pd.DataFrame, k: int):
 def auc(item: pd.Series, all_proba: pd.DataFrame, classes):
     y_true = item.values
     y_score = all_proba[classes].values
-    roc_auc = roc_auc_score(y_true, y_score, multi_class='ovo', labels=classes)
+    roc_auc = roc_auc_score(y_true, y_score, multi_class='ovr', labels=classes)
     return roc_auc
 # %%
 def logloss(item: pd.Series, all_proba: pd.DataFrame, classes):

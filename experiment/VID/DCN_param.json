@@ -5,11 +5,15 @@
     "feature_dim": 16,
     "hidden_units": [
         512,
-        256
+        256,
+        128
     ],
-    "dropout": 0.3,
-    "cross_layers": 2,
+    "dropout": 0.1,
+    "cross_layers": 1,
     "low_rank": 64,
     "attention_layers": 3,
-    "num_heads": 2
+    "num_heads": 2,
+    "proj_dim": 64,
+    "lambda_nce": 1.0,
+    "temperature": 0.1
 }

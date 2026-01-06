@@ -1,4 +1,5 @@
 # %%
+from models import DeepFMRecommend
 from src.utils import load, filling, round
 from src.models import *
 from src.evaluation import *
@@ -34,11 +35,11 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
 #%%
 k = 3
 seed = 42
-train, valid, test, info = load('VID', amount=None, train_ratio=0.7, val_ratio=0.1, is_dropna=False) #original, dropna
+train, valid, test, info = load('AWM', amount=None, train_ratio=0.7, val_ratio=0.1, is_dropna=False) #original, dropna
 item_name = info['item_name']
 sparse_features = info['sparse_features']
 dense_features = info['dense_features']
-_, imputer = filling(train, method='MICE_NB', seed=42)
+_, imputer = filling(train, method='MICE_NB', seed=seed)
 train_filled = imputer.transform(train.copy())
 valid_filled = imputer.transform(valid.copy())
 test_filled = imputer.transform(test.copy())
@@ -46,12 +47,16 @@ train_filled = round(train_filled, sparse_features)
 valid_filled = round(valid_filled, sparse_features)
 test_filled = round(test_filled, sparse_features)
 score = []
-model = XGBRecommend(item_name, sparse_features, dense_features, seed=42, k=k)
-model.fit(train.copy())
-score.append(model.score_test(test_filled.copy(), methods=['auc']))
-model = CoMICERecommend(item_name, sparse_features, dense_features, seed=42, k=k, num_views=3, backbone='DeepFM', epochs=200)
-model.fit(train.copy())
-score.append(model.score_test(test.copy(), methods=['auc']))
+# model = DeepFMRecommend.load('experiment/AWM/Original_model/DeepFM.pth')
+# score.append(model.score_test(test_filled.copy(), methods=['auc', 'ndcg_k']))
+# model = CoMICERecommend.load('experiment/AWM/Original_model/CoMICE_DeepFM.pth')
+# score.append(model.score_test(test_filled.copy(), methods=['auc', 'ndcg_k']))
+model = DeepFMRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, epochs=200)
+model.fit(train_filled.copy(), valid_filled.copy())
+score.append(model.score_test(test_filled.copy(), methods=['auc', 'logloss', 'hr_k']))
+model = CoMICERecommend(item_name, sparse_features, dense_features, seed=seed, k=k, num_views=3, backbone='DeepFM', epochs=200, mice_method='MICE_NB')
+model.fit(train.copy(), valid.copy())
+score.append(model.score_test(test.copy(), methods=['auc', 'logloss', 'hr_k']))
 # for missing_rate in [0.1]:
 #     train_miss = add_missing_values(train, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
 #     valid_miss = add_missing_values(valid, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
