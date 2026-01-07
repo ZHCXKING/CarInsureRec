@@ -67,7 +67,7 @@ def objective_CoMICE(trial, model_name, train, valid, info, default_params):
 def objective_TREE(trial, model_name, train, valid, info, default_params):
     params = default_params.copy()
     params['n_estimators'] = trial.suggest_categorical('n_estimators', [50, 100, 150, 200])
-    params['max_depth'] = trial.suggest_categorical('max_depth', [3, 5, 10])
+    params['max_depth'] = trial.suggest_categorical('max_depth', [3, 5, 8])
     ModelClass = globals()[f"{model_name}Recommend"]
     model = ModelClass(info['item_name'], info['sparse_features'], info['dense_features'], seed=42, k=3, **params)
     model.fit(train.copy())

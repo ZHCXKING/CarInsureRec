@@ -13,7 +13,7 @@ from lightgbm import LGBMRegressor
 # %%
 def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42):
     if method == 'MICE_RF':
-        imputer = IterativeImputer(estimator=RandomForestRegressor(random_state=seed), max_value=Max, min_value=Min, random_state=seed)
+        imputer = IterativeImputer(estimator=RandomForestRegressor(random_state=seed, n_jobs=-1), max_value=Max, min_value=Min, random_state=seed)
     elif method == 'MICE_NB':
         imputer = IterativeImputer(estimator=BayesianRidge(), max_value=Max, min_value=Min, random_state=seed, sample_posterior=True)
     elif method == 'MICE_Ga':
