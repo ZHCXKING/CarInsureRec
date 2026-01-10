@@ -1,4 +1,3 @@
-# %%
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,40 +9,36 @@ from src.utils import filling, round
 from .base import BaseRecommender
 from src.network import set_seed, DCNBackbone, DCNv2Backbone, AutoIntBackbone, FiBiNETBackbone, DeepFMBackbone, WideDeepBackbone, RecDataset
 # %%
-def pairwise_label_aware_loss(z1, z2, y, temperature=0.1):
-    batch_size = z1.shape[0]
-    device = z1.device
-    features = torch.cat([z1, z2], dim=0)
-    labels = torch.cat([y, y], dim=0)
-    features = F.normalize(features, dim=1)
-    sim_matrix = torch.matmul(features, features.T) / temperature
-    sim_max, _ = torch.max(sim_matrix, dim=1, keepdim=True)
-    sim_matrix = sim_matrix - sim_max.detach()
-    mask_label = torch.eq(labels.unsqueeze(0), labels.unsqueeze(1)).float()
-    mask_self = torch.eye(2 * batch_size, device=device)
-    mask_pos = torch.zeros((2 * batch_size, 2 * batch_size), device=device)
-    mask_pos[torch.arange(batch_size), torch.arange(batch_size) + batch_size] = 1
-    mask_pos[torch.arange(batch_size) + batch_size, torch.arange(batch_size)] = 1
-    mask_valid_neg = (1 - mask_label) + mask_pos
-    mask_valid_neg = mask_valid_neg * (1 - mask_self)
-    mask_valid_neg = (mask_valid_neg > 0).float()
-    exp_sim = torch.exp(sim_matrix)
-    pos_sim = (exp_sim * mask_pos).sum(dim=1)
-    neg_sim_sum = (exp_sim * mask_valid_neg).sum(dim=1)
-    log_prob = -torch.log(pos_sim / (neg_sim_sum + 1e-8) + 1e-8)
-    return log_prob.mean()
-def multiview_label_aware_loss(projections_list, y, temperature=0.1):
+def supervised_contrastive_loss(projections_list, y, temperature=0.1):
+    device = y.device
+    features = torch.cat(projections_list, dim=0)
     num_views = len(projections_list)
-    if num_views < 2:
-        return torch.tensor(0.0).to(projections_list[0].device)
-    total_loss = 0.0
-    pair_count = 0
-    for i in range(num_views):
-        for j in range(i + 1, num_views):
-            loss = pairwise_label_aware_loss(projections_list[i], projections_list[j], y, temperature)
-            total_loss += loss
-            pair_count += 1
-    return total_loss / pair_count
+    labels = torch.cat([y for _ in range(num_views)], dim=0)
+    features = F.normalize(features, dim=1)
+    batch_size = features.shape[0]
+    labels = labels.contiguous().view(-1, 1)
+    if labels.shape[0] != batch_size:
+        raise ValueError('Num of labels does not match num of features')
+    mask = torch.eq(labels, labels.T).float().to(device)
+    anchor_dot_contrast = torch.div(
+        torch.matmul(features, features.T),
+        temperature
+    )
+    logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
+    logits = anchor_dot_contrast - logits_max.detach()
+    logits_mask = torch.scatter(
+        torch.ones_like(mask),
+        1,
+        torch.arange(batch_size).view(-1, 1).to(device),
+        0
+    )
+    mask = mask * logits_mask
+    exp_logits = torch.exp(logits) * logits_mask
+    log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True) + 1e-8)
+    mean_log_prob_pos = (mask * log_prob).sum(1) / (mask.sum(1) + 1e-8)
+    loss = - mean_log_prob_pos.mean()
+    return loss
+# %%
 class MultiViewRecDataset(Dataset):
     def __init__(self, X_list, y):
         self.X_list = X_list
@@ -82,6 +77,7 @@ class CoMICERecommend(BaseRecommender):
             'lr': 1e-3,
             'batch_size': 1024,
             'epochs': 200,
+            'lambda_ce': 1.0,
             'lambda_nce': 1.0,
             'temperature': 0.1,
             'proj_dim': 64,
@@ -147,17 +143,17 @@ class CoMICERecommend(BaseRecommender):
             for l in logits_list:
                 ce_loss += F.cross_entropy(l, y)
             ce_loss = ce_loss / len(views_x)
-            nce_loss = multiview_label_aware_loss(
+            nce_loss = supervised_contrastive_loss(
                 projs_list,
                 y,
                 temperature=self.kwargs['temperature']
             )
-            loss = ce_loss + self.kwargs['lambda_nce'] * nce_loss
+            loss = self.kwargs['lambda_ce'] * ce_loss + self.kwargs['lambda_nce'] * nce_loss
             loss.backward()
             self.optimizer.step()
             total_loss += loss.item()
-            total_ce += ce_loss.item()
-            total_nce += nce_loss.item()
+            total_ce += self.kwargs['lambda_ce'] * ce_loss.item()
+            total_nce += self.kwargs['lambda_nce'] * nce_loss.item()
         n = len(dataloader)
         return total_loss / n, total_ce / n, total_nce / n
     def fit(self, train_data: pd.DataFrame, valid_data: pd.DataFrame = None, patience: int = 10):
@@ -205,10 +201,10 @@ class CoMICERecommend(BaseRecommender):
         best_val_loss = float('inf')
         patience_counter = 0
         best_model_weights = None
-        print(f"Start Contrastive Training with {num_views} views (Label-Aware)...")
+        print(f"Start Contrastive Training with {num_views} views")
         for epoch in range(self.kwargs['epochs']):
             avg_loss, avg_ce, avg_nce = self.train_one_epoch(train_loader)
-            log_msg = f"Epoch {epoch + 1}: Total {avg_loss:.4f} | CE {avg_ce:.4f} | NCE {avg_nce:.4f}"
+            log_msg = f"Epoch {epoch + 1}: Total {avg_loss:.4f} | CE {avg_ce:.4f} | SupCon {avg_nce:.4f}"
             if valid_loader is not None:
                 self.model.eval()
                 val_loss_sum = 0.0

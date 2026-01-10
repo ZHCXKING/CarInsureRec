@@ -70,7 +70,7 @@ class NetworkRecommender(BaseRecommender):
         else:
             backbone = self.backbone_class(**common_args)
         return StandardModel(backbone, num_classes, is_binary=(num_classes == 2)).to(self.device)
-    def fit(self, train_data: pd.DataFrame, valid_data: pd.DataFrame = None, patience: int = 5):
+    def fit(self, train_data: pd.DataFrame, valid_data: pd.DataFrame = None, patience: int = 10):
         self.out_dim = train_data[self.item_name].nunique()
         self.unique_item = list(range(self.out_dim))
         train_data = self._mapping(train_data, fit_bool=True)

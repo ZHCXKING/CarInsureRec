@@ -1,8 +1,9 @@
 # %%
-from models import DeepFMRecommend
 from src.utils import load, filling, round
 from src.models import *
 from src.evaluation import *
+import json
+from pathlib import Path
 #%%
 def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list = None, seed: int = 42):
     """
@@ -35,7 +36,7 @@ def add_missing_values(df: pd.DataFrame, missing_rate: float, feature_cols: list
 #%%
 k = 3
 seed = 0
-train, valid, test, info = load('HIP', amount=None, train_ratio=0.7, val_ratio=0.1, is_dropna=False) #original, dropna
+train, valid, test, info = load('AWM', amount=None, train_ratio=0.7, val_ratio=0.1, is_dropna=False) #original, dropna
 item_name = info['item_name']
 sparse_features = info['sparse_features']
 dense_features = info['dense_features']
@@ -51,15 +52,28 @@ score = []
 # score.append(model.score_test(test_filled.copy(), methods=['auc', 'ndcg_k']))
 # model = CoMICERecommend.load('experiment/AWM/Original_model/CoMICE_DeepFM.pth')
 # score.append(model.score_test(test_filled.copy(), methods=['auc', 'ndcg_k']))
+root = Path(__file__).parents[0]
+param_file = root / 'experiment' / 'AWM' / ('DCN' + "_param.json")
+with open(param_file, 'r') as f:
+    params = json.load(f)
+params['lambda_nce'] = 1.0
+# params['temperature'] = 0.1
+params['batch_size'] = 1024
+# params['proj_dim'] = 64
 all = []
+test_param = params.copy()
+test_param['lambda_nce'] = 0.0
+# test_param['temperature'] = 0.1
+test_param['batch_size'] = 1024
+# test_param['proj_dim'] = 64
 for seed in range(5):
     score = []
-    model = XGBRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, epochs=200)
-    model.fit(train_filled.copy())
-    score.append(model.score_test(test_filled.copy(), methods=['auc', 'logloss', 'hr_k', 'ndcg_k']))
-    model = CoMICERecommend(item_name, sparse_features, dense_features, seed=seed, k=k, num_views=3, backbone='AutoInt', epochs=200, mice_method='MICE_NB')
+    model = CoMICERecommend(item_name, sparse_features, dense_features, seed=seed, k=k, backbone='DCN', mice_method='MICE_NB', **params)
     model.fit(train.copy(), valid.copy())
     score.append(model.score_test(test.copy(), methods=['auc', 'logloss', 'hr_k', 'ndcg_k']))
+    model = CoMICERecommend(item_name, sparse_features, dense_features, seed=seed, k=k, backbone='DCN', mice_method='MICE_NB', **test_param)
+    model.fit(train.copy(), valid.copy())
+    score.append(model.score_test(test_filled.copy(), methods=['auc', 'logloss', 'hr_k', 'ndcg_k']))
     all.append(score)
 print(all)
 # for missing_rate in [0.1]:

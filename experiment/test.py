@@ -1,5 +1,5 @@
 import pandas as pd
-df = pd.read_excel('experiment 1.xlsx', index_col=0, sheet_name='Perf_Data')
+df = pd.read_excel('experiment.xlsx', index_col=0, sheet_name='Perf_Data')
 print(df)
 # 1. 将 Model 展开为列，方便在同一行对比
 # 索引包含 Dataset, Seed, Metric
