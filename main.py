@@ -56,23 +56,23 @@ root = Path(__file__).parents[0]
 param_file = root / 'experiment' / 'AWM' / ('DCN' + "_param.json")
 with open(param_file, 'r') as f:
     params = json.load(f)
-params['lambda_nce'] = 1.0
+#params['lambda_nce'] = 1.0
 # params['temperature'] = 0.1
-params['batch_size'] = 1024
+#params['batch_size'] = 1024
 # params['proj_dim'] = 64
 all = []
 test_param = params.copy()
-test_param['lambda_nce'] = 0.0
+#test_param['lambda_nce'] = 0.0
 # test_param['temperature'] = 0.1
-test_param['batch_size'] = 1024
+#test_param['batch_size'] = 1024
 # test_param['proj_dim'] = 64
 for seed in range(5):
     score = []
-    model = CoMICERecommend(item_name, sparse_features, dense_features, seed=seed, k=k, backbone='DCN', mice_method='MICE_NB', **params)
-    model.fit(train.copy(), valid.copy())
+    model = XGBRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, max_depth=10)
+    model.fit(train.copy())
     score.append(model.score_test(test.copy(), methods=['auc', 'logloss', 'hr_k', 'ndcg_k']))
-    model = CoMICERecommend(item_name, sparse_features, dense_features, seed=seed, k=k, backbone='DCN', mice_method='MICE_NB', **test_param)
-    model.fit(train.copy(), valid.copy())
+    model = RFRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, n_estimators=200)
+    model.fit(train.copy())
     score.append(model.score_test(test_filled.copy(), methods=['auc', 'logloss', 'hr_k', 'ndcg_k']))
     all.append(score)
 print(all)

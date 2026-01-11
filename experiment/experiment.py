@@ -11,7 +11,7 @@ STATISTIC_MODELS = ['LR', 'KNN', 'NB']
 CoMICE_Backbone = 'DCN'
 metrics = ['auc', 'logloss', 'hr_k', 'ndcg_k']
 imputers = ['MICE_NB', 'MICE_RF', 'MICE_LGBM']
-seeds = list(range(15, 20))
+seeds = list(range(0, 35))
 amount = None
 train_ratio = 0.7
 val_ratio = 0.1
@@ -160,4 +160,4 @@ def test_SSL():
         df_raw.to_excel(writer, sheet_name='SSL_Comparison')
 # %%
 if __name__ == "__main__":
-    test_SSL()
+    test_imputer()

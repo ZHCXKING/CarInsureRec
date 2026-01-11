@@ -13,7 +13,8 @@ from lightgbm import LGBMRegressor
 # %%
 def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42):
     if method == 'MICE_RF':
-        imputer = IterativeImputer(estimator=RandomForestRegressor(random_state=seed, n_jobs=-1), max_value=Max, min_value=Min, random_state=seed)
+        imputer = IterativeImputer(
+            estimator=RandomForestRegressor(n_estimators=20, max_depth=5, random_state=seed, n_jobs=-1), max_value=Max, min_value=Min, random_state=seed)
     elif method == 'MICE_NB':
         imputer = IterativeImputer(estimator=BayesianRidge(), max_value=Max, min_value=Min, random_state=seed, sample_posterior=True)
     elif method == 'MICE_Ga':
@@ -23,10 +24,10 @@ def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42)
     elif method == 'KNN':
         imputer = KNNImputer(n_neighbors=5)
     elif method == 'MICE_XGB':
-        xgb_estimator = XGBRegressor(random_state=seed)
+        xgb_estimator = XGBRegressor(n_estimators=20, max_depth=5, random_state=seed)
         imputer = IterativeImputer(estimator=xgb_estimator, max_value=Max, min_value=Min, random_state=seed)
     elif method == 'MICE_LGBM':
-        lgbm_estimator = LGBMRegressor(random_state=seed)
+        lgbm_estimator = LGBMRegressor(n_estimators=20, max_depth=5, random_state=seed)
         imputer = IterativeImputer(estimator=lgbm_estimator, max_value=Max, min_value=Min, random_state=seed)
     else:
         raise ValueError('method must is not supported')
