@@ -10,6 +10,7 @@ from sklearn.svm import LinearSVR
 from sklearn.impute import KNNImputer
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
+from .GAIN import GAINImputer
 # %%
 def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42):
     if method == 'MICE_RF':
@@ -29,6 +30,8 @@ def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42)
     elif method == 'MICE_LGBM':
         lgbm_estimator = LGBMRegressor(n_estimators=20, max_depth=5, random_state=seed)
         imputer = IterativeImputer(estimator=lgbm_estimator, max_value=Max, min_value=Min, random_state=seed)
+    elif method == 'GAIN':
+        imputer = GAINImputer(batch_size=256, epoch=100, seed=seed)
     else:
         raise ValueError('method must is not supported')
     imputer.set_output(transform='pandas')
@@ -56,3 +59,17 @@ def get_filled_data(train, valid, test, sparse_features, method='MICE_NB', seed=
     valid_filled = round(valid_filled, sparse_features)
     test_filled = round(test_filled, sparse_features)
     return train_filled, valid_filled, test_filled
+# %%
+def inject_missingness(df, sparse_feats, dense_feats, ratio, seed=42):
+    if ratio <= 0.0:
+        return df.copy()
+    data = df.copy()
+    features = sparse_feats + dense_feats
+    np.random.seed(seed)
+    for col in features:
+        non_null_idx = data[data[col].notnull()].index.tolist()
+        n_mask = int(len(non_null_idx) * ratio)
+        if n_mask > 0:
+            mask_idx = np.random.choice(non_null_idx, n_mask, replace=False)
+            data.loc[mask_idx, col] = np.nan
+    return data

@@ -1,10 +1,9 @@
+import os
+import random
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
-import numpy as np
-import random
-import os
-# %%
 def set_seed(seed: int):
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -14,7 +13,6 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-# %%
 class FactorizationMachine(nn.Module):
     def __init__(self):
         super().__init__()
@@ -112,7 +110,6 @@ class DNN(nn.Module):
         self.output_dim = in_dim
     def forward(self, x):
         return self.net(x)
-# %%
 class WideDeepBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
@@ -124,7 +121,7 @@ class WideDeepBackbone(nn.Module):
         self.deep_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
         deep_input_dim = self.num_sparse * feature_dim + dense_count
         self.dnn = DNN(deep_input_dim, hidden_units, dropout)
-        self.output_dim = hidden_units[-1]  # 输出向量维度
+        self.output_dim = hidden_units[-1]
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
@@ -183,7 +180,8 @@ class DCNBackbone(nn.Module):
         deep_out = self.dnn(x_0)
         return torch.cat([cross_out, deep_out], dim=1)
 class DCNv2Backbone(nn.Module):
-    def __init__(self, sparse_dims, dense_count, feature_dim=16, cross_layers=3, hidden_units=[256, 128], dropout=0.1, low_rank=64):
+    def __init__(self, sparse_dims, dense_count, feature_dim=16, cross_layers=3, hidden_units=[256, 128], dropout=0.1,
+                 low_rank=64):
         super().__init__()
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
@@ -211,7 +209,8 @@ class DCNv2Backbone(nn.Module):
         deep_out = self.dnn(x_0)
         return torch.cat([cross_out, deep_out], dim=1)
 class AutoIntBackbone(nn.Module):
-    def __init__(self, sparse_dims, dense_count, feature_dim=32, attention_layers=3, num_heads=2, hidden_units=[256, 128], dropout=0.1):
+    def __init__(self, sparse_dims, dense_count, feature_dim=32, attention_layers=3, num_heads=2,
+                 hidden_units=[256, 128], dropout=0.1):
         super().__init__()
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
@@ -268,7 +267,6 @@ class FiBiNETBackbone(nn.Module):
         dnn_input = torch.cat([E_flat, V_flat, p, q], dim=1)
         output = self.dnn(dnn_input)
         return output
-# %%
 class RecDataset(Dataset):
     def __init__(self, X, y):
         self.X = X

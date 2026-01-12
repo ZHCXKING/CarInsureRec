@@ -40,8 +40,10 @@ train, valid, test, info = load('AWM', amount=None, train_ratio=0.7, val_ratio=0
 item_name = info['item_name']
 sparse_features = info['sparse_features']
 dense_features = info['dense_features']
-_, imputer = filling(train, method='MICE_NB', seed=seed)
+_, imputer = filling(train, method='GAIN', seed=seed)
+print(train)
 train_filled = imputer.transform(train.copy())
+print(train_filled)
 valid_filled = imputer.transform(valid.copy())
 test_filled = imputer.transform(test.copy())
 train_filled = round(train_filled, sparse_features)
@@ -66,16 +68,16 @@ test_param = params.copy()
 # test_param['temperature'] = 0.1
 #test_param['batch_size'] = 1024
 # test_param['proj_dim'] = 64
-for seed in range(5):
-    score = []
-    model = XGBRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, max_depth=10)
-    model.fit(train.copy())
-    score.append(model.score_test(test.copy(), methods=['auc', 'logloss', 'hr_k', 'ndcg_k']))
-    model = RFRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, n_estimators=200)
-    model.fit(train.copy())
-    score.append(model.score_test(test_filled.copy(), methods=['auc', 'logloss', 'hr_k', 'ndcg_k']))
-    all.append(score)
-print(all)
+# for seed in range(5):
+#     score = []
+#     model = XGBRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, max_depth=10)
+#     model.fit(train.copy())
+#     score.append(model.score_test(test.copy(), methods=['auc', 'logloss', 'hr_k', 'ndcg_k']))
+#     model = RFRecommend(item_name, sparse_features, dense_features, seed=seed, k=k, n_estimators=200)
+#     model.fit(train.copy())
+#     score.append(model.score_test(test_filled.copy(), methods=['auc', 'logloss', 'hr_k', 'ndcg_k']))
+#     all.append(score)
+# print(all)
 # for missing_rate in [0.1]:
 #     train_miss = add_missing_values(train, missing_rate, feature_cols=sparse_features+dense_features, seed=42)
 #     valid_miss = add_missing_values(valid, missing_rate, feature_cols=sparse_features+dense_features, seed=42)

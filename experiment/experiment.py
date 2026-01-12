@@ -160,4 +160,4 @@ def test_SSL():
         df_raw.to_excel(writer, sheet_name='SSL_Comparison')
 # %%
 if __name__ == "__main__":
-    test_imputer()
+    test_Perf()
