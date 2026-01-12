@@ -11,17 +11,25 @@ from sklearn.impute import KNNImputer
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 from .GAIN import GAINImputer
+from .MIWAE import MIWAEImputer
 # %%
-def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42):
+def select_interpolation(Max, Min, method: str = 'MICE_NB', seed: int = 42):
     if method == 'MICE_RF':
         imputer = IterativeImputer(
-            estimator=RandomForestRegressor(n_estimators=20, max_depth=5, random_state=seed, n_jobs=-1), max_value=Max, min_value=Min, random_state=seed)
+            estimator=RandomForestRegressor(n_estimators=20, max_depth=5, random_state=seed, n_jobs=-1),
+            max_value=Max, min_value=Min, random_state=seed)
     elif method == 'MICE_NB':
-        imputer = IterativeImputer(estimator=BayesianRidge(), max_value=Max, min_value=Min, random_state=seed, sample_posterior=True)
+        imputer = IterativeImputer(
+            estimator=BayesianRidge(),
+            max_value=Max, min_value=Min, random_state=seed, sample_posterior=True)
     elif method == 'MICE_Ga':
-        imputer = IterativeImputer(estimator=GaussianProcessRegressor(random_state=seed), max_value=Max, min_value=Min, random_state=seed, sample_posterior=True)
+        imputer = IterativeImputer(
+            estimator=GaussianProcessRegressor(random_state=seed),
+            max_value=Max, min_value=Min, random_state=seed, sample_posterior=True)
     elif method == 'MICE_SVM':
-        imputer = IterativeImputer(estimator=LinearSVR(random_state=seed), max_value=Max, min_value=Min, random_state=seed)
+        imputer = IterativeImputer(
+            estimator=LinearSVR(random_state=seed),
+            max_value=Max, min_value=Min, random_state=seed)
     elif method == 'KNN':
         imputer = KNNImputer(n_neighbors=5)
     elif method == 'MICE_XGB':
@@ -31,17 +39,19 @@ def select_interpolation(Max, Min, method: str = 'iterative_NB', seed: int = 42)
         lgbm_estimator = LGBMRegressor(n_estimators=20, max_depth=5, random_state=seed)
         imputer = IterativeImputer(estimator=lgbm_estimator, max_value=Max, min_value=Min, random_state=seed)
     elif method == 'GAIN':
-        imputer = GAINImputer(batch_size=256, epoch=100, seed=seed)
+        imputer = GAINImputer(batch_size=1024, epoch=50, seed=seed)
+    elif method == 'MIWAE':
+        imputer = MIWAEImputer(batch_size=1024, epoch=50, K=20, L=1000, seed=seed)
     else:
         raise ValueError('method must is not supported')
     imputer.set_output(transform='pandas')
     return imputer
 # %%
-def round(df: pd.DataFrame, sparse_features: list, item_name: str='product_item'):
+def round(df: pd.DataFrame, sparse_features: list, item_name: str = 'product_item'):
     for col in sparse_features:
         df[col] = np.round(df[col])
         df[col] = df[col].astype('int64')
-    df[item_name] = df[item_name].astype('int64')
+    df[item_name] = np.round(df[item_name]).astype('int64')
     return df
 # %%
 def filling(df: pd.DataFrame, method: str = 'iterative_NB', seed: int = 42):

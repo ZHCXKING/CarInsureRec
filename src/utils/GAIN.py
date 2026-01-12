@@ -1,5 +1,3 @@
-# %%
-import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
@@ -8,7 +6,6 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm
-# %%
 class Generator(nn.Module):
     def __init__(self, dim, h_dim):
         super().__init__()
@@ -26,13 +23,11 @@ class Discriminator(nn.Module):
         self.fc1 = nn.Linear(dim * 2, h_dim)
         self.fc2 = nn.Linear(h_dim, h_dim)
         self.fc3 = nn.Linear(h_dim, dim)
-
     def forward(self, x, h):
         inp = torch.cat([x, h], dim=1)
         h = F.relu(self.fc1(inp))
         h = F.relu(self.fc2(h))
         return torch.sigmoid(self.fc3(h))
-# %%
 class GAINImputer(BaseEstimator, TransformerMixin):
     def __init__(
         self,
@@ -62,6 +57,8 @@ class GAINImputer(BaseEstimator, TransformerMixin):
         return np.random.binomial(1, self.hint_rate, size=(m, n))
     def fit(self, X, y=None):
         self._set_seed()
+        self.feature_names_in_ = np.array(X.columns, dtype=object)
+        self.n_features_in_ = X.shape[1]
         X_np = X.values.astype(np.float32)
         mask_np = 1 - np.isnan(X_np).astype(np.float32)
         X_scaled = self.scaler.fit_transform(
@@ -100,7 +97,7 @@ class GAINImputer(BaseEstimator, TransformerMixin):
                         m * torch.log(d_prob + 1e-8)
                         + (1 - m) * torch.log(1 - d_prob + 1e-8)
                     )
-                ) / torch.sum(b == 0)
+                ) / (torch.sum(b == 0) + 1e-8)
                 opt_D.zero_grad()
                 d_loss.backward()
                 opt_D.step()
@@ -117,22 +114,21 @@ class GAINImputer(BaseEstimator, TransformerMixin):
                 d_prob = self.D(x_hat, h)
                 g_adv = -torch.sum(
                     (b == 0) * (1 - m) * torch.log(d_prob + 1e-8)
-                ) / torch.sum((b == 0) * (1 - m))
-                g_mse = torch.sum(
-                    m * (x - x_bar) ** 2
-                ) / torch.sum(m)
+                ) / (torch.sum((b == 0) * (1 - m)) + 1e-8)
+                g_mse = torch.sum(m * (x - x_bar) ** 2) / (torch.sum(m) + 1e-8)
                 g_loss = g_adv + self.alpha * g_mse
                 opt_G.zero_grad()
                 g_loss.backward()
                 opt_G.step()
+        self.is_fitted_ = True
         return self
     def transform(self, X):
+        if not hasattr(self, "is_fitted_"):
+            raise RuntimeError("This GAINImputer instance is not fitted yet.")
         self.G.eval()
         X_np = X.values.astype(np.float32)
         mask_np = 1 - np.isnan(X_np).astype(np.float32)
-        X_scaled = self.scaler.transform(
-            np.nan_to_num(X_np, nan=0.0)
-        )
+        X_scaled = self.scaler.transform(np.nan_to_num(X_np, nan=0.0))
         x = torch.tensor(X_scaled, device=self.device)
         m = torch.tensor(mask_np, device=self.device)
         with torch.no_grad():
@@ -144,6 +140,4 @@ class GAINImputer(BaseEstimator, TransformerMixin):
         x_final = self.scaler.inverse_transform(x_hat)
         return x_final
     def get_feature_names_out(self, input_features=None):
-        if input_features is None:
-            return np.asarray(self.feature_names_in_)
-        return np.asarray(input_features)
+        return self.feature_names_in_

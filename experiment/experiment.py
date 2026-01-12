@@ -1,7 +1,7 @@
 import pandas as pd
 import json
 from src.models import *
-from src.utils import load, get_filled_data
+from src.utils import load, get_filled_data, inject_missingness
 from pathlib import Path
 # %%
 datasets = ['AWM', 'HIP', 'VID']
@@ -10,7 +10,9 @@ TREE_MODELS = ['RF', 'XGB', 'LGBM', 'CatB']
 STATISTIC_MODELS = ['LR', 'KNN', 'NB']
 CoMICE_Backbone = 'DCN'
 metrics = ['auc', 'logloss', 'hr_k', 'ndcg_k']
-imputers = ['MICE_NB', 'MICE_RF', 'MICE_LGBM']
+mice_imputers = ['MICE_NB', 'MICE_RF', 'MICE_LGBM']
+other_imputers = ['GAIN', 'MIWAE', 'KNN']
+mask_ratios = [0.0, 0.1, 0.3, 0.5, 0.7]
 seeds = list(range(0, 35))
 amount = None
 train_ratio = 0.7
@@ -100,7 +102,7 @@ def test_imputer():
         param_file = root / data_type / (CoMICE_Backbone + "_param.json")
         with open(param_file, 'r') as f:
             params = json.load(f)
-        for imputer in imputers:
+        for imputer in mice_imputers:
             for seed in seeds:
                 train_filled, valid_filled, test_filled = get_filled_data(train, valid, test, info['sparse_features'], method=imputer, seed=seed)
                 ModelClass = globals()[f"{CoMICE_Backbone}Recommend"]
@@ -159,5 +161,40 @@ def test_SSL():
     with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df_raw.to_excel(writer, sheet_name='SSL_Comparison')
 # %%
+def test_NaRatio():
+    all_raw_data = []
+    for data_type in datasets:
+        train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
+        param_file = root / data_type / (CoMICE_Backbone + "_param.json")
+        with open(param_file, 'r') as f:
+            params = json.load(f)
+        for ratio in mask_ratios:
+            for imputer in mice_imputers + other_imputers + ['CoMICE']:
+                for seed in seeds:
+                    train_mask = inject_missingness(train, info['sparse_features'], info['dense_features'], ratio, seed=seed)
+                    valid_mask = inject_missingness(valid, info['sparse_features'], info['dense_features'], ratio, seed=seed)
+                    ModelClass = globals()[f"{CoMICE_Backbone}Recommend"]
+                    if imputer == 'CoMICE':
+                        base_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **params)
+                        base_model.fit(train_mask.copy(), valid_mask.copy())
+                        score = base_model.score_test(test.copy(), methods=metrics)
+                    else:
+                        train_filled, valid_filled, test_filled = get_filled_data(train_mask, valid_mask, test, info['sparse_features'], method=imputer, seed=seed)
+                        base_model = ModelClass(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, **params)
+                        base_model.fit(train_filled.copy(), valid_filled.copy())
+                        score = base_model.score_test(test_filled.copy(), methods=metrics)
+                    for i, metric in enumerate(metrics):
+                        all_raw_data.append({
+                            'Dataset': data_type,
+                            'Ratio': ratio,
+                            'Model': imputer,
+                            'Seed': seed,
+                            'Metric': metric,
+                            'Score': score[i]
+                        })
+    df_raw = pd.DataFrame(all_raw_data)
+    with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+        df_raw.to_excel(writer, sheet_name='NaRatio_Data')
+# %%
 if __name__ == "__main__":
-    test_Perf()
+    test_NaRatio()
