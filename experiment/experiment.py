@@ -1,5 +1,7 @@
 import pandas as pd
 import json
+import itertools
+import time
 from src.models import *
 from src.utils import load, get_filled_data, inject_missingness
 from pathlib import Path
@@ -13,6 +15,9 @@ metrics = ['auc', 'logloss', 'hr_k', 'ndcg_k']
 mice_imputers = ['MICE_NB', 'MICE_RF', 'MICE_LGBM']
 other_imputers = ['GAIN', 'MIWAE', 'KNN']
 mask_ratios = [0.0, 0.1, 0.3, 0.5, 0.7]
+lambda_list = [0.01, 0.1, 0.5, 1.0, 2.0]
+temp_list = [0.01, 0.05, 0.1, 0.15, 0.2]
+views_list = [1, 2, 3, 4, 5]
 seeds = list(range(0, 35))
 amount = None
 train_ratio = 0.7
@@ -196,5 +201,64 @@ def test_NaRatio():
     with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df_raw.to_excel(writer, sheet_name='NaRatio_Data')
 # %%
+def test_sensitivity_heatmap():
+    all_raw_data = []
+    for data_type in datasets:
+        train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
+        param_file = root / data_type / (CoMICE_Backbone + "_param.json")
+        with open(param_file, 'r') as f:
+            params = json.load(f)
+        combinations = list(itertools.product(lambda_list, temp_list))
+        for lam, temp in combinations:
+            current_params = params.copy()
+            current_params['lambda_nce'] = lam
+            current_params['temperature'] = temp
+            for seed in seeds:
+                model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **current_params)
+                model.fit(train.copy(), valid.copy())
+                score = model.score_test(test.copy(), methods=metrics)
+                for i, metric in enumerate(metrics):
+                    all_raw_data.append({
+                        'Dataset': data_type,
+                        'lambda_nce': lam,
+                        'temperature': temp,
+                        'Seed': seed,
+                        'Metric': metric,
+                        'Score': score[i]
+                    })
+    df_raw = pd.DataFrame(all_raw_data)
+    with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+        df_raw.to_excel(writer, sheet_name='sensitivity_heatmap')
+# %%
+def test_views_tradeoff():
+    all_raw_data = []
+    for data_type in datasets:
+        train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
+        param_file = root / data_type / (CoMICE_Backbone + "_param.json")
+        with open(param_file, 'r') as f:
+            params = json.load(f)
+        for n_views in views_list:
+            current_params = params.copy()
+            current_params['num_views'] = n_views
+            for seed in seeds:
+                model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **current_params)
+                start_time = time.time()
+                model.fit(train.copy(), valid.copy())
+                end_time = time.time()
+                training_time = end_time - start_time
+                score = model.score_test(test.copy(), methods=metrics)
+                for i, metric in enumerate(metrics):
+                    all_raw_data.append({
+                        'Dataset': data_type,
+                        'num_views': n_views,
+                        'Seed': seed,
+                        'Time_Sec': training_time,
+                        'Metric': metric,
+                        'Score': score[i]
+                    })
+    df_raw = pd.DataFrame(all_raw_data)
+    with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+        df_raw.to_excel(writer, sheet_name='views_tradeoff')
+# %%
 if __name__ == "__main__":
-    test_NaRatio()
+    test_views_tradeoff()
