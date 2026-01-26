@@ -19,7 +19,8 @@ lambda_list = [0.01, 0.1, 0.5, 1.0, 2.0]
 temp_list = [0.01, 0.05, 0.1, 0.15, 0.2]
 views_list = [1, 2, 3, 4, 5]
 batchsizes_list = [256, 512, 1024, 2048, 4096]
-seeds = list(range(0, 35))
+mask_strategies = ['random', 'feature', 'dimension']
+seeds = list(range(10, 11))
 amount = None
 train_ratio = 0.7
 val_ratio = 0.1
@@ -150,9 +151,12 @@ def test_SSL():
                 CE_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **CE_Lose_param)
                 CE_model.fit(train.copy(), valid.copy())
                 CE_score = CE_model.score_test(test.copy(), methods=metrics)
-                CE_NCE_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **CE_NCE_Lose_param)
+                CE_NCE_model = StandardCoMICE(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **CE_NCE_Lose_param)
                 CE_NCE_model.fit(train.copy(), valid.copy())
                 CE_NCE_score = CE_NCE_model.score_test(test.copy(), methods=metrics)
+                CE_weight_NCE_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **CE_NCE_Lose_param)
+                CE_weight_NCE_model.fit(train.copy(), valid.copy())
+                CE_weight_NCE_score = CE_weight_NCE_model.score_test(test.copy(), methods=metrics)
                 for i, metric in enumerate(metrics):
                     all_raw_data.append({
                         'Dataset': data_type,
@@ -160,8 +164,8 @@ def test_SSL():
                         'Seed': seed,
                         'Metric': metric,
                         'CE_score': CE_score[i],
-                        'CE_NCE_score': CE_NCE_score[i],
-                        'Diff': CE_NCE_score[i] - CE_score[i]
+                        'CE_NCE_score' : CE_NCE_score[i],
+                        'CE_weight_NCE_score': CE_weight_NCE_score[i],
                     })
     df_raw = pd.DataFrame(all_raw_data)
     with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
@@ -290,5 +294,44 @@ def test_batchsizes_tradeoff():
     with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df_raw.to_excel(writer, sheet_name='batchsizes_tradeoff')
 # %%
+def test_mask_ablation():
+    all_raw_data = []
+    for data_type in datasets:
+        train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
+        param_file = root / data_type / (CoMICE_Backbone + "_param.json")
+        with open(param_file, 'r') as f:
+            params = json.load(f)
+        for seed in seeds:
+            model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **params)
+            model.fit(train.copy(), valid.copy())
+            score = model.score_test(test.copy(), methods=metrics)
+            for i, metric in enumerate(metrics):
+                all_raw_data.append({
+                    'Dataset': data_type,
+                    'View_Type': 'MICE_Multiple_Views',
+                    'Seed': seed,
+                    'Metric': metric,
+                    'Score': score[i]
+                })
+        for strategy in mask_strategies:
+            current_params = params.copy()
+            current_params['mask_type'] = strategy
+            current_params['num_views'] = 3  # 确保视图数量与 CoMICE 相同
+            for seed in seeds:
+                model = MaskCoMICE(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **current_params)
+                model.fit(train.copy(), valid.copy())
+                score = model.score_test(test.copy(), methods=metrics)
+                for i, metric in enumerate(metrics):
+                    all_raw_data.append({
+                        'Dataset': data_type,
+                        'View_Type': f'Mask_{strategy}',
+                        'Seed': seed,
+                        'Metric': metric,
+                        'Score': score[i]
+                    })
+    df_raw = pd.DataFrame(all_raw_data)
+    with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+        df_raw.to_excel(writer, sheet_name='Mask_Ablation_Study')
+# %%
 if __name__ == "__main__":
-    test_batchsizes_tradeoff()
+    test_SSL()
