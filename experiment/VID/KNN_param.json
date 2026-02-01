@@ -1,5 +1,0 @@
-{
-    "n_neighbors": 30,
-    "C": 10,
-    "max_iter": 1000
-}

@@ -70,16 +70,40 @@ def get_filled_data(train, valid, test, sparse_features, method='MICE_NB', seed=
     test_filled = round(test_filled, sparse_features)
     return train_filled, valid_filled, test_filled
 # %%
-def inject_missingness(df, sparse_feats, dense_feats, ratio, seed=42):
+def inject_missingness(df, sparse_feats, dense_feats, ratio, seed=42, mode='random'):
     if ratio <= 0.0:
         return df.copy()
     data = df.copy()
     features = sparse_feats + dense_feats
     np.random.seed(seed)
-    for col in features:
-        non_null_idx = data[data[col].notnull()].index.tolist()
-        n_mask = int(len(non_null_idx) * ratio)
+    if mode == 'random':
+        for col in features:
+            non_null_idx = data[data[col].notnull()].index.tolist()
+            n_mask = int(len(non_null_idx) * ratio)
+            if n_mask > 0:
+                mask_idx = np.random.choice(non_null_idx, n_mask, replace=False)
+                data.loc[mask_idx, col] = np.nan
+    elif mode == 'row':
+        n_rows = len(data)
+        n_mask = int(n_rows * ratio)
         if n_mask > 0:
-            mask_idx = np.random.choice(non_null_idx, n_mask, replace=False)
-            data.loc[mask_idx, col] = np.nan
+            mask_rows = np.random.choice(data.index, n_mask, replace=False)
+            data.loc[mask_rows, features] = np.nan
+    elif mode == 'col':
+        n_cols = len(features)
+        n_mask = int(n_cols * ratio)
+        if n_mask > 0:
+            mask_cols = np.random.choice(features, n_mask, replace=False)
+            data.loc[:, mask_cols] = np.nan
+    elif mode == 'row_partial':
+        n_rows = len(data)
+        n_mask_rows = int(n_rows * ratio)
+        mask_rows = np.random.choice(data.index, n_mask_rows, replace=False)
+        cols_missing_ratio = 0.8
+        for idx in mask_rows:
+            available_feats = [c for c in features if pd.notnull(data.at[idx, c])]
+            n_drop = int(len(available_feats) * cols_missing_ratio)
+            if n_drop > 0:
+                drop_feats = np.random.choice(available_feats, n_drop, replace=False)
+                data.loc[idx, drop_feats] = np.nan
     return data

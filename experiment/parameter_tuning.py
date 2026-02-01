@@ -9,7 +9,7 @@ ROOT = Path(__file__).parents[0]
 DATASETS = ['AWM', 'HIP', 'VID']
 NN_MODELS = ['DCN', 'DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'AutoInt']
 TREE_MODELS = ['RF', 'XGB', 'LGBM', 'CatB']
-STATISTIC_MODELS = ['LR', 'KNN', 'NB']
+STATISTIC_MODELS = ['LR', 'NB']
 NN_PARAMS = {
     'lr': 1e-3,
     'batch_size': 1024,

@@ -23,7 +23,7 @@ class MultiViewRecDataset(Dataset):
         return (*views, self.y[idx])
 # %%
 class ContrastiveModel(nn.Module):
-    def __init__(self, backbone, num_classes, proj_dim=32, is_binary=False):
+    def __init__(self, backbone, num_classes, proj_dim=32):
         super().__init__()
         self.backbone = backbone
         output_dim = getattr(backbone, 'output_dim', None)
@@ -90,10 +90,14 @@ class CoMICERecommend(BaseRecommender):
             backbone = WideDeepBackbone(**common_args)
         else:
             raise ValueError(f"Backbone '{backbone_name}' not supported. ")
-        is_binary = (num_classes == 2)
-        model = ContrastiveModel(backbone, num_classes, self.kwargs['proj_dim'], is_binary)
+        model = ContrastiveModel(backbone, num_classes, self.kwargs['proj_dim'])
         return model.to(self.device)
     def supervised_contrastive_loss(self, projections_list, y, temperature=0.1):
+        '''
+        \mathcal{L}_{CoMICE} = \sum_{i \in I} \frac{-1}{|P(i)|}
+        \sum_{p \in P(i)} \log \frac{w_p \cdot \exp (\mathbf{z}_i \cdot \mathbf{z}_p / \tau)}
+        {\sum_{a \in A(i)} w_a \cdot \exp (\mathbf{z}_i \cdot \mathbf{z}_a / \tau)}
+        '''
         device = y.device
         num_views = len(projections_list)
         proj_stack = torch.stack(projections_list, dim=0)
@@ -113,10 +117,11 @@ class CoMICERecommend(BaseRecommender):
         logits_mask.fill_diagonal_(0)
         weights_all = weights.repeat(num_views)
         weight_matrix = weights_all.unsqueeze(0) * weights_all.unsqueeze(1)
-        exp_logits = torch.exp(logits) * logits_mask * weight_matrix
-        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True) + 1e-8)
-        pos_weighted = mask * log_prob * weight_matrix
-        mean_log_prob_pos = pos_weighted.sum(1) / (mask * weight_matrix).sum(1).clamp_min(1e-8)
+        weighted_logits = logits + torch.log(weight_matrix + 1e-8)
+        exp_weighted_logits = torch.exp(weighted_logits) * logits_mask
+        log_prob = weighted_logits - torch.log(exp_weighted_logits.sum(1, keepdim=True) + 1e-8)
+        pos_log_prob = mask * log_prob
+        mean_log_prob_pos = pos_log_prob.sum(1) / mask.sum(1).clamp_min(1e-8)
         loss = -mean_log_prob_pos.mean()
         return loss
     def train_one_epoch(self, dataloader):
@@ -253,7 +258,7 @@ class MaskCoMICE(CoMICERecommend):
         self.model_name = 'MaskCoMICE'
         extra_params = {
             'mask_type': 'random',  # 'random', 'feature', 'dimension'
-            'mask_ratio': 0.4,
+            'mask_ratio': 0.3,
             'num_views': 3  # 保持与 CoMICE 一致的视图数量
         }
         for k, v in extra_params.items():

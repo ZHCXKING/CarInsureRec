@@ -19,16 +19,15 @@ def get_figsize(nrows, ncols):
 # %%
 def draw_NaRatio():
     df = pd.read_excel("experiment.xlsx", sheet_name="NaRatio_Data")
-    df = df[df['Seed'].between(10, 19) & (df['Model'] != 'MIWAE')]
-    datasets = ["AWM", "HIP", "VID"]
+    # df = df[(df['Model'] != 'MICE_LGBM')]
+    datasets = ["HIP"]
     metrics = ["hr_k", "ndcg_k"]
     metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
     nrows, ncols = len(metrics), len(datasets)
     fig, axes = plt.subplots(
         nrows=nrows, ncols=ncols,
         figsize=get_figsize(nrows, ncols),
-        sharex=True,
-        squeeze=False  # 确保 axes 始终是二维的
+        squeeze=False
     )
     for row, metric in enumerate(metrics):
         for col, dataset in enumerate(datasets):
@@ -54,30 +53,37 @@ def draw_NaRatio():
 # %%
 def draw_heatmap():
     df = pd.read_excel("experiment.xlsx", sheet_name="sensitivity_heatmap")
-    df_filtered = df[df['Seed'].between(10, 19)]
     datasets = ['AWM', 'HIP', 'VID']
     metrics = ['hr_k', 'ndcg_k']
-    for metric in metrics:
-        ncols = len(datasets)
-        # 热力图通常按指标分图，横向排列数据集
-        fig, axes = plt.subplots(1, ncols, figsize=(5.5 * ncols, 5), squeeze=False)
-        for i, dataset in enumerate(datasets):
-            ax = axes[0, i]
-            df_sub = df_filtered[(df_filtered['Metric'] == metric) & (df_filtered['Dataset'] == dataset)]
-            df_avg = df_sub.groupby(['lambda_nce', 'temperature'])['Score'].mean().reset_index()
-            df_pivot = df_avg.pivot(index='temperature', columns='lambda_nce', values='Score')
+    metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
+    nrows, ncols = len(metrics), len(datasets)
+    fig, axes = plt.subplots(
+        nrows=nrows, ncols=ncols,
+        figsize=get_figsize(nrows, ncols),
+        squeeze=False
+    )
+    for row, metric in enumerate(metrics):
+        for col, dataset in enumerate(datasets):
+            ax = axes[row, col]
+            df_sub = df[(df['Metric'] == metric) & (df['Dataset'] == dataset)]
+            df_pivot = df_sub.groupby(['lambda_nce', 'temperature'])['Score'].mean().reset_index()
+            df_pivot = df_pivot.pivot(index='temperature', columns='lambda_nce', values='Score')
             sns.heatmap(df_pivot, annot=True, fmt=".4f", cmap="YlGnBu", ax=ax)
-            ax.set_title(f'Dataset: {dataset}')
-            ax.set_xlabel('$\lambda_{nce}$')
-            ax.set_ylabel('Temperature')
-        plt.tight_layout()
-        plt.savefig(f'Heatmap_{metric}.pdf', bbox_inches='tight')
-        plt.show()
+            if row == 0:
+                ax.set_title(f'Dataset: {dataset}', fontsize=STYLE_PARAMS['fontsize_title'], pad=10)
+            ax.set_xlabel(r'$\lambda_{nce}$')
+            if col == 0:
+                label_text = f"{metric_names[metric]}\nTemperature"
+                ax.set_ylabel(label_text, fontsize=STYLE_PARAMS['fontsize_label'], fontweight='bold')
+            else:
+                ax.set_ylabel("")
+    plt.tight_layout(rect=STYLE_PARAMS['rect_layout'])
+    plt.savefig('Sensitivity_Heatmap.pdf', bbox_inches='tight')
+    plt.show()
 # %%
 def draw_views_tradeoff():
     df = pd.read_excel("experiment.xlsx", sheet_name="views_tradeoff")
-    df = df[df['Seed'].between(10, 19)]
-    datasets = ["AWM", "HIP", "VID"]
+    datasets = ["AWM", "VID"]
     metrics = ["hr_k", "ndcg_k"]
     metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
     nrows, ncols = len(metrics), len(datasets)
@@ -109,7 +115,6 @@ def draw_views_tradeoff():
 # %%
 def draw_batchsize_tradeoff():
     df = pd.read_excel("experiment.xlsx", sheet_name="batchsizes_tradeoff")
-    df = df[df['Seed'].between(10, 19)]
     datasets = ["AWM", "HIP", "VID"]
     metrics = ["hr_k", "ndcg_k"]
     metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
