@@ -257,9 +257,9 @@ class MaskCoMICE(CoMICERecommend):
     def __init__(self, item_name, sparse_features, dense_features, **kwargs):
         self.model_name = 'MaskCoMICE'
         extra_params = {
-            'mask_type': 'random',  # 'random', 'feature', 'dimension'
+            'mask_type': 'random',
             'mask_ratio': 0.3,
-            'num_views': 3  # 保持与 CoMICE 一致的视图数量
+            'num_views': 3
         }
         for k, v in extra_params.items():
             if k not in kwargs:
@@ -280,10 +280,18 @@ class MaskCoMICE(CoMICERecommend):
             num_to_mask = max(1, int(feat_num * mask_ratio))
             mask_indices = torch.randperm(feat_num)[:num_to_mask]
             x_perturbed[:, mask_indices] = 0
-        elif mask_type == 'dimension':
-            num_to_perturb = max(1, int(feat_num * mask_ratio))
-            indices = torch.randperm(feat_num)[:num_to_perturb]
-            x_perturbed[:, indices] *= 0.1
+        if mask_type == 'noise':
+            num_sparse = len(self.sparse_features)
+            num_dense = len(self.dense_features)
+            eps = self.kwargs.get('mask_ratio', 0.1)
+            if eps <= 0 or num_dense == 0:
+                return x
+            x_perturbed = x.clone()
+            noise = torch.empty(
+                x_perturbed[:, num_sparse:].shape,
+                device=device
+            ).uniform_(-eps, eps)
+            x_perturbed[:, num_sparse:] += noise
         return x_perturbed
     def train_one_epoch(self, dataloader):
         self.model.train()

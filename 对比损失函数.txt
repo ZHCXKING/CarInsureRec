@@ -1,0 +1,39 @@
+根据你提供的代码逻辑，CoMICE 的损失函数是对标准监督对比损失（SupCon）的加权扩展。若要参照你提供的图片格式进行改写，其数学表达式如下：
+
+1. 权重定义
+
+首先，定义样本 $i$ 的视图置信度权重 $w_i$，它基于 $V$ 个填补视图投影向量 $\{\mathbf{z}_{i,v}\}_{v=1}^V$ 的方差计算：
+
+$$\sigma_i^2 = \frac{1}{V} \sum_{v=1}^{V} \|\mathbf{z}_{i,v} - \bar{\mathbf{z}}_i\|^2$$
+
+$$w_i = \frac{\exp(-\sigma_i^2)}{\text{avg}(\exp(-\sigma^2))}$$
+
+2. CoMICE 损失函数公式
+
+将权重项代入标准的 SupCon 公式中。在代码实现里，权重是通过 $\text{logit}$ 叠加 $\log(w_a \cdot w_p)$ 实现的，这等同于在 $\exp$ 指数项中直接乘以权重乘积：
+
+$$\mathcal{L}_{CoMICE} = \sum_{i \in I} \frac{-1}{|P(i)|} \sum_{p \in P(i)} \log \frac{w_i \cdot w_p \cdot \exp (\mathbf{z}_i \cdot \mathbf{z}_p / \tau)}{\sum_{a \in A(i)} w_i \cdot w_a \cdot \exp (\mathbf{z}_i \cdot \mathbf{z}_a / \tau)}$$
+
+3. 公式项对照说明
+
+为了方便你对应代码，以下是各符号的物理意义：
+
+$I$: 整个 Batch 的索引集合，总数为 $N \times V$（样本数 $\times$ 视图数）。
+
+$P(i)$: 样本 $i$ 的“正样本”集合，即 Batch 内所有标签与 $i$ 相同且索引不等于 $i$ 的样本。
+
+$A(i)$: 样本 $i$ 的“对比”集合，即 Batch 内除 $i$ 以外的所有样本。
+
+$w_i, w_p, w_a$: 对应样本的置信度权重。当方差 $\sigma^2$ 越大时，权重越低，从而减弱不确定性高的填补视图对损失梯度的贡献。
+
+$\tau$: 温度参数（代码中的 temperature）。
+
+4. 简化的写法
+
+由于分子分母都有 $w_i$，可以约简为：
+
+$$\mathcal{L}_{CoMICE} = \sum_{i \in I} \frac{-1}{|P(i)|} \sum_{p \in P(i)} \log \frac{w_p \cdot \exp (\mathbf{z}_i \cdot \mathbf{z}_p / \tau)}{\sum_{a \in A(i)} w_a \cdot \exp (\mathbf{z}_i \cdot \mathbf{z}_a / \tau)}$$
+
+注意： 当所有视图的方差一致时（即 $w=1$），该公式会完全退化回你图片中的标准 $\mathcal{L}_{out}^{sup}$ 形式。
+
+需要我为你进一步推导该损失函数对特征 $\mathbf{z}_i$ 的梯度贡献规律吗？

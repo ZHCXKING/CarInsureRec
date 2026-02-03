@@ -10,7 +10,7 @@ datasets = ['AWM', 'HIP', 'VID']
 NN_MODELS = ['DCN', 'DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'AutoInt']
 TREE_MODELS = ['RF', 'XGB', 'LGBM', 'CatB']
 STATISTIC_MODELS = ['LR', 'NB']
-CoMICE_Backbone = 'DeepFM'
+CoMICE_Backbone = 'DCN'
 metrics = ['auc', 'logloss', 'hr_k', 'ndcg_k']
 mice_imputers = ['MICE_NB', 'MICE_RF', 'MICE_LGBM']
 other_imputers = ['GAIN', 'MIWAE', 'KNN']
@@ -19,8 +19,8 @@ lambda_list = [0.01, 0.1, 0.5, 1.0, 2.0]
 temp_list = [0.01, 0.05, 0.1, 0.15, 0.2]
 views_list = [1, 2, 3, 4, 5]
 batchsizes_list = [256, 512, 1024, 2048, 4096]
-mask_strategies = ['random', 'feature', 'dimension']
-seeds = list(range(0, 1))
+mask_strategies = ['random', 'feature', 'noise']
+seeds = list(range(0, 50))
 amount = None
 train_ratio = 0.7
 val_ratio = 0.1
@@ -191,7 +191,7 @@ def test_SSL():
                 params = json.load(f)
             CE_Lose_param = {**params, 'lambda_ce': 1.0, 'lambda_nce': 0.0}
             CE_NCE_Lose_param = {**params, 'lambda_ce': 1.0, 'lambda_nce': 1.0}
-            for seed in seeds:
+            for seed in Seeds[model_name]:
                 CE_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **CE_Lose_param)
                 CE_model.fit(train.copy(), valid.copy())
                 CE_score = CE_model.score_test(test.copy(), methods=metrics)
@@ -352,4 +352,5 @@ def test_batchsizes_tradeoff():
         df_raw.to_excel(writer, sheet_name='batchsizes_tradeoff')
 # %%
 if __name__ == "__main__":
-    test_SSL()
+    test_model()
+    test_mask_ablation()
