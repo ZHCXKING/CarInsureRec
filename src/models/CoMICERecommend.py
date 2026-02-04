@@ -258,7 +258,7 @@ class MaskCoMICE(CoMICERecommend):
         self.model_name = 'MaskCoMICE'
         extra_params = {
             'mask_type': 'random',
-            'mask_ratio': 0.3,
+            'mask_ratio': 0.2,
             'num_views': 3
         }
         for k, v in extra_params.items():
