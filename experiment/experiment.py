@@ -14,13 +14,13 @@ CoMICE_Backbone = 'DCN'
 metrics = ['auc', 'logloss', 'hr_k', 'ndcg_k']
 mice_imputers = ['MICE_NB', 'MICE_RF', 'MICE_LGBM']
 other_imputers = ['GAIN', 'MIWAE', 'KNN']
-mask_ratios = [0.1, 0.3, 0.5, 0.7]
+mask_ratios = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 lambda_list = [0.01, 0.1, 0.5, 1.0, 2.0]
 temp_list = [0.01, 0.05, 0.1, 0.15, 0.2]
 views_list = [1, 2, 3, 4, 5]
 batchsizes_list = [256, 512, 1024, 2048, 4096]
 mask_strategies = ['random', 'feature', 'noise']
-seeds = list(range(0, 50))
+seeds = list(range(0, 35))
 amount = None
 train_ratio = 0.7
 val_ratio = 0.1
@@ -72,35 +72,35 @@ def test_Perf():
 # %%
 def test_NaRatio():
     all_raw_data = []
-    data_type = 'HIP'
-    train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
-    with open(root / data_type / 'Seeds.json', 'r') as f:
-        Seeds = json.load(f)
-    param_file = root / data_type / (CoMICE_Backbone + "_param.json")
-    with open(param_file, 'r') as f:
-        params = json.load(f)
-    all_imputers = mice_imputers + other_imputers + ['CoMICE']
-    for ratio, imputer, seed in itertools.product(mask_ratios, all_imputers, Seeds[CoMICE_Backbone]):
-        train_mask = inject_missingness(train, info['sparse_features'], info['dense_features'], ratio, seed=seed)
-        ModelClass = globals()[f"{CoMICE_Backbone}Recommend"]
-        if imputer == 'CoMICE':
-            base_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **params)
-            base_model.fit(train_mask.copy(), valid.copy())
-            score = base_model.score_test(test.copy(), methods=metrics)
-        else:
-            train_filled, valid_filled, test_filled = get_filled_data(train_mask, valid, test, info['sparse_features'], method=imputer, seed=seed)
-            base_model = ModelClass(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, **params)
-            base_model.fit(train_filled.copy(), valid_filled.copy())
-            score = base_model.score_test(test_filled.copy(), methods=metrics)
-        for i, metric in enumerate(metrics):
-            all_raw_data.append({
-                'Dataset': data_type,
-                'Ratio': ratio,
-                'Model': imputer,
-                'Seed': seed,
-                'Metric': metric,
-                'Score': score[i]
-            })
+    for data_type in datasets:
+        train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
+        with open(root / data_type / 'Seeds.json', 'r') as f:
+            Seeds = json.load(f)
+        param_file = root / data_type / (CoMICE_Backbone + "_param.json")
+        with open(param_file, 'r') as f:
+            params = json.load(f)
+        all_imputers = mice_imputers + other_imputers + ['CoMICE']
+        for ratio, imputer, seed in itertools.product(mask_ratios, all_imputers, Seeds[CoMICE_Backbone]):
+            train_mask = inject_missingness(train, info['sparse_features'], info['dense_features'], ratio, seed=seed)
+            ModelClass = globals()[f"{CoMICE_Backbone}Recommend"]
+            if imputer == 'CoMICE':
+                base_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **params)
+                base_model.fit(train_mask.copy(), valid.copy())
+                score = base_model.score_test(test.copy(), methods=metrics)
+            else:
+                train_filled, valid_filled, test_filled = get_filled_data(train_mask, valid, test, info['sparse_features'], method=imputer, seed=seed)
+                base_model = ModelClass(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, **params)
+                base_model.fit(train_filled.copy(), valid_filled.copy())
+                score = base_model.score_test(test_filled.copy(), methods=metrics)
+            for i, metric in enumerate(metrics):
+                all_raw_data.append({
+                    'Dataset': data_type,
+                    'Ratio': ratio,
+                    'Model': imputer,
+                    'Seed': seed,
+                    'Metric': metric,
+                    'Score': score[i]
+                })
     df_raw = pd.DataFrame(all_raw_data)
     with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df_raw.to_excel(writer, sheet_name='NaRatio_Data')
@@ -352,5 +352,6 @@ def test_batchsizes_tradeoff():
         df_raw.to_excel(writer, sheet_name='batchsizes_tradeoff')
 # %%
 if __name__ == "__main__":
-    test_model()
-    test_mask_ablation()
+    test_Perf()
+    test_sensitivity_heatmap()
+    test_batchsizes_tradeoff()

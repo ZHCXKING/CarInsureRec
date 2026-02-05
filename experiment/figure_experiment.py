@@ -19,8 +19,8 @@ def get_figsize(nrows, ncols):
 # %%
 def draw_NaRatio():
     df = pd.read_excel("experiment.xlsx", sheet_name="NaRatio_Data")
-    # df = df[(df['Model'] != 'MICE_LGBM')]
-    datasets = ["HIP"]
+    df = df[(df['Model'] != 'MIWAE')]
+    datasets = ["AWM", "HIP", "VID"]
     metrics = ["hr_k", "ndcg_k"]
     metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
     nrows, ncols = len(metrics), len(datasets)
@@ -146,4 +146,4 @@ def draw_batchsize_tradeoff():
     plt.show()
 # %%
 if __name__ == '__main__':
-    draw_NaRatio()
+    draw_heatmap()
