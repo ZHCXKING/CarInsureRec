@@ -105,79 +105,42 @@ def test_NaRatio():
     with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df_raw.to_excel(writer, sheet_name='NaRatio_Data')
 # %%
-def test_model():
+def test_model_imputer():
     all_raw_data = []
     for data_type in datasets:
         train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
         with open(root / data_type / 'Seeds.json', 'r') as f:
             Seeds = json.load(f)
-        for model_name in NN_MODELS:
+        for model_name, imputer in itertools.product(NN_MODELS, mice_imputers):
             param_file = root / data_type / (model_name + "_param.json")
             with open(param_file, 'r') as f:
                 params = json.load(f)
             for seed in Seeds[model_name]:
-                train_filled, valid_filled, test_filled = get_filled_data(train, valid, test, info['sparse_features'], seed=seed)
+                train_filled, valid_filled, test_filled = get_filled_data(train, valid, test, info['sparse_features'], method=imputer, seed=seed)
                 ModelClass = globals()[f"{model_name}Recommend"]
                 base_model = ModelClass(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, **params)
                 base_model.fit(train_filled.copy(), valid_filled.copy())
                 b_score = base_model.score_test(test_filled.copy(), methods=metrics)
-                augment_model = AugmentRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **params)
+                augment_model = AugmentRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, mice_method=imputer, **params)
                 augment_model.fit(train.copy(), valid.copy())
                 a_score = augment_model.score_test(test.copy(), methods=metrics)
-                comice_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **params)
+                comice_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, mice_method=imputer, **params)
                 comice_model.fit(train.copy(), valid.copy())
                 c_score = comice_model.score_test(test.copy(), methods=metrics)
                 for i, metric in enumerate(metrics):
                     all_raw_data.append({
                         'Dataset': data_type,
-                        'Backbone': model_name,
-                        'Seed': seed,
-                        'Metric': metric,
-                        'BaseScore': b_score[i],
-                        'AugmentScore': a_score[i],
-                        'CoMICEScore': c_score[i],
-                        'Diff': c_score[i] - a_score[i]
-                    })
-    df_raw = pd.DataFrame(all_raw_data)
-    with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-        df_raw.to_excel(writer, sheet_name='Model_Comparison')
-# %%
-def test_imputer():
-    all_raw_data = []
-    for data_type in datasets:
-        train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
-        with open(root / data_type / 'Seeds.json', 'r') as f:
-            Seeds = json.load(f)
-        param_file = root / data_type / (CoMICE_Backbone + "_param.json")
-        with open(param_file, 'r') as f:
-            params = json.load(f)
-        for imputer in mice_imputers:
-            for seed in Seeds[CoMICE_Backbone]:
-                train_filled, valid_filled, test_filled = get_filled_data(train, valid, test, info['sparse_features'], method=imputer, seed=seed)
-                ModelClass = globals()[f"{CoMICE_Backbone}Recommend"]
-                base_model = ModelClass(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, **params)
-                base_model.fit(train_filled.copy(), valid_filled.copy())
-                b_score = base_model.score_test(test_filled.copy(), methods=metrics)
-                augment_model = AugmentRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, mice_method=imputer, **params)
-                augment_model.fit(train.copy(), valid.copy())
-                a_score = augment_model.score_test(test.copy(), methods=metrics)
-                comice_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, mice_method=imputer, **params)
-                comice_model.fit(train.copy(), valid.copy())
-                c_score = comice_model.score_test(test.copy(), methods=metrics)
-                for i, metric in enumerate(metrics):
-                    all_raw_data.append({
-                        'Dataset': data_type,
+                        'model': model_name,
                         'imputer': imputer,
                         'Seed': seed,
                         'Metric': metric,
                         'BaseScore': b_score[i],
                         'AugmentScore': a_score[i],
                         'CoMICEScore': c_score[i],
-                        'Diff': c_score[i] - a_score[i]
                     })
     df_raw = pd.DataFrame(all_raw_data)
     with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-        df_raw.to_excel(writer, sheet_name='Imputer_Comparison')
+        df_raw.to_excel(writer, sheet_name='Model_imputer_Comparison')
 # %%
 def test_SSL():
     all_raw_data = []
@@ -352,6 +315,4 @@ def test_batchsizes_tradeoff():
         df_raw.to_excel(writer, sheet_name='batchsizes_tradeoff')
 # %%
 if __name__ == "__main__":
-    test_Perf()
-    test_sensitivity_heatmap()
-    test_batchsizes_tradeoff()
+    test_model_imputer()
