@@ -4,8 +4,8 @@
     "epochs": 200,
     "feature_dim": 32,
     "hidden_units": [
-        512,
-        256
+        128,
+        64
     ],
     "dropout": 0.3,
     "cross_layers": 3,

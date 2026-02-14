@@ -10,7 +10,7 @@
     ],
     "dropout": 0.1,
     "cross_layers": 2,
-    "low_rank": 32,
+    "low_rank": 16,
     "attention_layers": 3,
     "num_heads": 2,
     "proj_dim": 64,

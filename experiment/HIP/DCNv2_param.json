@@ -8,9 +8,9 @@
         128,
         64
     ],
-    "dropout": 0.2,
+    "dropout": 0.1,
     "cross_layers": 1,
-    "low_rank": 64,
+    "low_rank": 16,
     "attention_layers": 3,
     "num_heads": 2,
     "proj_dim": 64,

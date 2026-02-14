@@ -118,15 +118,21 @@ class WideDeepBackbone(nn.Module):
         self.wide_sparse = nn.ModuleList([nn.Embedding(d, 1) for d in sparse_dims])
         if dense_count > 0:
             self.wide_dense = nn.Linear(dense_count, 1)
-        self.deep_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
-        deep_input_dim = self.num_sparse * feature_dim + dense_count
+        self.deep_sparse_embs = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
+        if dense_count > 0:
+            self.deep_dense_proj = nn.ModuleList([nn.Linear(1, feature_dim) for _ in range(dense_count)])
+        deep_input_dim = (self.num_sparse + self.num_dense) * feature_dim
         self.dnn = DNN(deep_input_dim, hidden_units, dropout)
         self.output_dim = hidden_units[-1]
     def forward(self, x):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
-        deep_emb = torch.cat([emb(sparse_x[:, i]) for i, emb in enumerate(self.deep_embs)], dim=1)
-        deep_in = torch.cat([deep_emb, dense_x], dim=1) if self.num_dense > 0 else deep_emb
+        sparse_embeds = [self.deep_sparse_embs[i](sparse_x[:, i]) for i in range(self.num_sparse)]
+        dense_embeds = []
+        if self.num_dense > 0:
+            dense_embeds = [self.deep_dense_proj[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)]
+        all_embeds = sparse_embeds + dense_embeds
+        deep_in = torch.cat(all_embeds, dim=1)
         deep_out = self.dnn(deep_in)
         return deep_out
 class DeepFMBackbone(nn.Module):
@@ -163,7 +169,9 @@ class DCNBackbone(nn.Module):
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
         self.embeddings = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
-        self.input_dim = self.num_sparse * feature_dim + dense_count
+        if dense_count > 0:
+            self.dense_proj = nn.ModuleList([nn.Linear(1, feature_dim) for _ in range(dense_count)])
+        self.input_dim = (self.num_sparse + self.num_dense) * feature_dim
         self.cross_net = CrossNetwork(self.input_dim, cross_layers)
         self.dnn = DNN(self.input_dim, hidden_units, dropout)
         self.output_dim = self.input_dim + hidden_units[-1]
@@ -171,11 +179,11 @@ class DCNBackbone(nn.Module):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
         sparse_embeds = [self.embeddings[i](sparse_x[:, i]) for i in range(self.num_sparse)]
-        sparse_flat = torch.cat(sparse_embeds, dim=1)
+        dense_embeds = []
         if self.num_dense > 0:
-            x_0 = torch.cat([sparse_flat, dense_x], dim=1)
-        else:
-            x_0 = sparse_flat
+            dense_embeds = [self.dense_proj[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)]
+        all_embeds = sparse_embeds + dense_embeds
+        x_0 = torch.cat(all_embeds, dim=1)
         cross_out = self.cross_net(x_0)
         deep_out = self.dnn(x_0)
         return torch.cat([cross_out, deep_out], dim=1)
@@ -186,7 +194,9 @@ class DCNv2Backbone(nn.Module):
         self.num_sparse = len(sparse_dims)
         self.num_dense = dense_count
         self.embeddings = nn.ModuleList([nn.Embedding(d, feature_dim) for d in sparse_dims])
-        self.input_dim = self.num_sparse * feature_dim + dense_count
+        if dense_count > 0:
+            self.dense_proj = nn.ModuleList([nn.Linear(1, feature_dim) for _ in range(dense_count)])
+        self.input_dim = (self.num_sparse + self.num_dense) * feature_dim
         self.cross_layers = nn.ModuleList([
             DCNv2Layer(self.input_dim, low_rank=low_rank)
             for _ in range(cross_layers)
@@ -197,11 +207,11 @@ class DCNv2Backbone(nn.Module):
         sparse_x = x[:, :self.num_sparse].long()
         dense_x = x[:, self.num_sparse:]
         sparse_embeds = [self.embeddings[i](sparse_x[:, i]) for i in range(self.num_sparse)]
-        sparse_flat = torch.cat(sparse_embeds, dim=1)
+        dense_embeds = []
         if self.num_dense > 0:
-            x_0 = torch.cat([sparse_flat, dense_x], dim=1)
-        else:
-            x_0 = sparse_flat
+            dense_embeds = [self.dense_proj[i](dense_x[:, i].unsqueeze(1)) for i in range(self.num_dense)]
+        all_embeds = sparse_embeds + dense_embeds
+        x_0 = torch.cat(all_embeds, dim=1)
         x_l = x_0
         for layer in self.cross_layers:
             x_l = layer(x_l, x_0)

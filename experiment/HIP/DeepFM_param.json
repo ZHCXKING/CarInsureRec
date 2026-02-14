@@ -4,11 +4,10 @@
     "epochs": 200,
     "feature_dim": 32,
     "hidden_units": [
-        256,
         128,
         64
     ],
-    "dropout": 0.3,
+    "dropout": 0.2,
     "cross_layers": 3,
     "low_rank": 64,
     "attention_layers": 3,

@@ -2,14 +2,14 @@
     "lr": 0.001,
     "batch_size": 1024,
     "epochs": 200,
-    "feature_dim": 16,
+    "feature_dim": 32,
     "hidden_units": [
         512,
         256,
         128
     ],
     "dropout": 0.1,
-    "cross_layers": 1,
+    "cross_layers": 2,
     "low_rank": 64,
     "attention_layers": 3,
     "num_heads": 2,

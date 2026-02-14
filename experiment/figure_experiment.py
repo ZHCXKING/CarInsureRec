@@ -64,7 +64,7 @@ def draw_NaRatio():
 def draw_heatmap():
     df = pd.read_excel("experiment.xlsx", sheet_name="sensitivity_heatmap")
     datasets = ['AWM', 'VID']
-    metrics = ['hr_k', 'ndcg_k']
+    metrics = ['ndcg_k']
     metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
     nrows, ncols = len(metrics), len(datasets)
     fig, axes = plt.subplots(
@@ -82,11 +82,9 @@ def draw_heatmap():
             if row == 0:
                 ax.set_title(f'Dataset: {dataset}', fontsize=STYLE_PARAMS['fontsize_title'], pad=10)
             ax.set_xlabel(r'$\lambda_{nce}$')
-            if col == 0:
-                label_text = f"{metric_names[metric]}\nTemperature"
-                ax.set_ylabel(label_text, fontsize=STYLE_PARAMS['fontsize_label'], fontweight='bold')
-            else:
-                ax.set_ylabel("")
+            label_text = f"Temperature"
+            ax.set_ylabel(label_text, fontsize=STYLE_PARAMS['fontsize_label'])
+
     plt.tight_layout(rect=STYLE_PARAMS['rect_layout'])
     plt.savefig('Sensitivity_Heatmap.pdf', bbox_inches='tight')
     plt.show()
@@ -117,7 +115,7 @@ def draw_views_tradeoff():
             ax2.get_legend().remove()
     h1, _ = axes[0, 0].get_legend_handles_labels()
     h2, _ = ax2.get_legend_handles_labels()
-    fig.legend(h1 + h2, ["Performance", "Training Time"], loc="upper center",
+    fig.legend(h1 + h2, ["Performance", "Training Time"], loc="upper center", fontsize=14,
                ncol=2, frameon=False, bbox_to_anchor=STYLE_PARAMS['legend_pos'])
     plt.tight_layout(rect=STYLE_PARAMS['rect_layout'])
     plt.savefig('Views_Tradeoff.pdf', bbox_inches='tight')
@@ -151,7 +149,7 @@ def draw_batchsize_tradeoff():
             ax2.get_legend().remove()
     h1, _ = axes[0, 0].get_legend_handles_labels()
     h2, _ = ax2.get_legend_handles_labels()
-    fig.legend(h1 + h2, ["Performance", "Training Time"], loc="upper center",
+    fig.legend(h1 + h2, ["Performance", "Training Time"], loc="upper center", fontsize=14,
                ncol=2, frameon=False, bbox_to_anchor=STYLE_PARAMS['legend_pos'])
     plt.tight_layout(rect=STYLE_PARAMS['rect_layout'])
     plt.savefig('BatchSize_Tradeoff.pdf', bbox_inches='tight')
@@ -199,4 +197,4 @@ def calculate_significance(file_path='experiment.xlsx', target_model='CoMICE', s
     # df_sig.to_excel('calculate_significance.xlsx')
 # %%
 if __name__ == '__main__':
-    draw_NaRatio()
+    draw_heatmap()
