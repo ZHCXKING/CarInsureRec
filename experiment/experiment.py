@@ -12,11 +12,11 @@ TREE_MODELS = ['RF', 'XGB', 'LGBM', 'CatB']
 STATISTIC_MODELS = ['LR', 'NB']
 CoMICE_Backbone = 'DCN'
 metrics = ['auc', 'logloss', 'hr_k', 'ndcg_k']
-mice_imputers = ['MICE_NB', 'MICE_RF', 'MICE_LGBM']
+mice_imputers = ['MICE_NB', 'MICE_RF']
 other_imputers = ['GAIN', 'MIWAE', 'KNN']
 mask_ratios = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-lambda_list = [0.01, 0.1, 0.5, 1.0, 2.0]
-temp_list = [0.01, 0.05, 0.1, 0.15, 0.2]
+lambda_list = [0.01, 0.1, 1.0, 10, 100]
+temp_list = [0.01, 0.1, 1.0, 10, 100]
 views_list = [1, 2, 3, 4, 5]
 batchsizes_list = [256, 512, 1024, 2048, 4096]
 mask_strategies = ['random', 'feature', 'noise']
@@ -77,7 +77,7 @@ def test_NaRatio():
         with open(root / data_type / 'Seeds.json', 'r') as f:
             Seeds = json.load(f)
         all_imputers = mice_imputers + other_imputers + ['CoMICE']
-        for model_name in NN_MODELS:
+        for model_name in ['DCN']:
             for ratio, imputer, seed in itertools.product(mask_ratios, all_imputers, Seeds[model_name]):
                 param_file = root / data_type / (model_name + "_param.json")
                 with open(param_file, 'r') as f:
@@ -98,7 +98,7 @@ def test_NaRatio():
                         'Dataset': data_type,
                         'model': model_name,
                         'Ratio': ratio,
-                        'Model': imputer,
+                        'imputer': imputer,
                         'Seed': seed,
                         'Metric': metric,
                         'Score': score[i]
@@ -107,33 +107,32 @@ def test_NaRatio():
     with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
         df_raw.to_excel(writer, sheet_name='NaRatio_Data')
 # %%
-def test_model_imputer():
+def test_model():
     all_raw_data = []
     for data_type in datasets:
         train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
         with open(root / data_type / 'Seeds.json', 'r') as f:
             Seeds = json.load(f)
-        for model_name, imputer in itertools.product(NN_MODELS, mice_imputers):
+        for model_name in NN_MODELS:
             param_file = root / data_type / (model_name + "_param.json")
             with open(param_file, 'r') as f:
                 params = json.load(f)
             for seed in Seeds[model_name]:
-                train_filled, valid_filled, test_filled = get_filled_data(train, valid, test, info['sparse_features'], method=imputer, seed=seed)
+                train_filled, valid_filled, test_filled = get_filled_data(train, valid, test, info['sparse_features'], seed=seed)
                 ModelClass = globals()[f"{model_name}Recommend"]
                 base_model = ModelClass(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, **params)
                 base_model.fit(train_filled.copy(), valid_filled.copy())
                 b_score = base_model.score_test(test_filled.copy(), methods=metrics)
-                augment_model = AugmentRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, mice_method=imputer, **params)
+                augment_model = AugmentRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **params)
                 augment_model.fit(train.copy(), valid.copy())
                 a_score = augment_model.score_test(test.copy(), methods=metrics)
-                comice_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, mice_method=imputer, **params)
+                comice_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **params)
                 comice_model.fit(train.copy(), valid.copy())
                 c_score = comice_model.score_test(test.copy(), methods=metrics)
                 for i, metric in enumerate(metrics):
                     all_raw_data.append({
                         'Dataset': data_type,
                         'model': model_name,
-                        'imputer': imputer,
                         'Seed': seed,
                         'Metric': metric,
                         'BaseScore': b_score[i],
@@ -142,7 +141,7 @@ def test_model_imputer():
                     })
     df_raw = pd.DataFrame(all_raw_data)
     with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-        df_raw.to_excel(writer, sheet_name='Model_imputer_Comparison')
+        df_raw.to_excel(writer, sheet_name='Model_Comparison')
 # %%
 def test_SSL():
     all_raw_data = []
@@ -317,4 +316,4 @@ def test_batchsizes_tradeoff():
         df_raw.to_excel(writer, sheet_name='batchsizes_tradeoff')
 # %%
 if __name__ == "__main__":
-    test_NaRatio()
+    test_sensitivity_heatmap()

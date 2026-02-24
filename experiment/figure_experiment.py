@@ -22,11 +22,11 @@ def get_figsize(nrows, ncols):
 # %%
 def draw_NaRatio():
     df = pd.read_excel("experiment.xlsx", sheet_name="NaRatio_Data")
-    names = {'MICE_NB': 'MICE(NB)', 'MICE_RF': 'MissForest', 'MICE_LGBM': 'MICE(LGBM)'}
-    df = df[(df['Model'] != 'MIWAE')]
-    df = df[df['Ratio'].isin([0.1, 0.2, 0.3, 0.4, 0.5, 0.6])]
-    df['Model'] = df['Model'].replace(names)
-    datasets = ["AWM"]
+    names = {'MICE_NB': 'MICE(NB)', 'MICE_RF': 'MissForest'}
+    df = df[(df['imputer'] != 'MICE_RF')]
+    df = df[df['Ratio'].isin([0.1, 0.3, 0.5, 0.7, 0.9])]
+    datasets = ["HIP"]
+    df['imputer'] = df['imputer'].replace(names)
     metrics = ["hr_k", "ndcg_k"]
     metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
     nrows, ncols = len(metrics), len(datasets)
@@ -40,7 +40,7 @@ def draw_NaRatio():
             ax = axes[row, col]
             df_sub = df[(df["Metric"] == metric) & (df["Dataset"] == dataset)]
 
-            sns.lineplot(data=df_sub, x="Ratio", y="Score", hue="Model",
+            sns.lineplot(data=df_sub, x="Ratio", y="Score", hue="imputer",
                          marker="o", errorbar='se', linewidth=2, ax=ax)
             ax.set_title("")
             if col == 0:
@@ -64,7 +64,7 @@ def draw_NaRatio():
 def draw_heatmap():
     df = pd.read_excel("experiment.xlsx", sheet_name="sensitivity_heatmap")
     datasets = ['AWM', 'VID']
-    metrics = ['ndcg_k']
+    metrics = ['hr_k']
     metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
     nrows, ncols = len(metrics), len(datasets)
     fig, axes = plt.subplots(
@@ -177,7 +177,7 @@ def calculate_significance(file_path='experiment.xlsx', target_model='CoMICE', s
                     (df['Metric'] == metric)
                     ]['Score'].values
                 baseline_mean = np.mean(baseline_scores)
-                t_stat, p_value = stats.ttest_ind(target_scores, baseline_scores, equal_var=False, alternative='greater')
+                t_stat, p_value = stats.ttest_ind(target_scores, baseline_scores, equal_var=False, alternative='two-sided')
                 is_improved = False
                 if metric == 'logloss':
                     if target_mean < baseline_mean: is_improved = True
@@ -190,11 +190,11 @@ def calculate_significance(file_path='experiment.xlsx', target_model='CoMICE', s
                     'Target_Mean': target_mean,
                     'Baseline_Mean': baseline_mean,
                     'P_Value': p_value,
-                    'Significant': p_value < 0.05,
+                    'Significant': p_value < 0.01,
                     'Improved': is_improved
                 })
     df_sig = pd.DataFrame(results)
-    # df_sig.to_excel('calculate_significance.xlsx')
+    df_sig.to_excel('calculate_significance.xlsx')
 # %%
 if __name__ == '__main__':
     draw_heatmap()
