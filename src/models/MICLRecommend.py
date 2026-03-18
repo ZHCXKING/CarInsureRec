@@ -1,13 +1,13 @@
+import copy
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import pandas as pd
-import numpy as np
-import copy
 from torch.utils.data import DataLoader, Dataset
+from src.network import set_seed, DCNBackbone, DCNv2Backbone, AutoIntBackbone, FiBiNETBackbone, DeepFMBackbone, WideDeepBackbone, RecDataset
 from src.utils import filling, round
 from .base import BaseRecommender
-from src.network import set_seed, DCNBackbone, DCNv2Backbone, AutoIntBackbone, FiBiNETBackbone, DeepFMBackbone, WideDeepBackbone, RecDataset
 # %%
 class MultiViewRecDataset(Dataset):
     def __init__(self, X_list, y):
@@ -39,10 +39,10 @@ class ContrastiveModel(nn.Module):
         proj = self.projection_head(features)
         return logits, proj
 # %%
-class CoMICERecommend(BaseRecommender):
+class MICLRecommend(BaseRecommender):
     def __init__(self, item_name: str, sparse_features: list, dense_features: list,
                  standard_bool: bool = True, seed: int = 42, k: int = 3, **kwargs):
-        super().__init__('CoMICE', item_name, sparse_features, dense_features, standard_bool, seed, k)
+        super().__init__('MICLRec', item_name, sparse_features, dense_features, standard_bool, seed, k)
         default_params = {
             'lr': 1e-3,
             'batch_size': 1024,
@@ -94,7 +94,7 @@ class CoMICERecommend(BaseRecommender):
         return model.to(self.device)
     def supervised_contrastive_loss(self, projections_list, y, temperature=0.1):
         '''
-        \mathcal{L}_{CoMICE} = \sum_{i \in I} \frac{-1}{|P(i)|}
+        \mathcal{L}_{MICLRec} = \sum_{i \in I} \frac{-1}{|P(i)|}
         \sum_{p \in P(i)} \log \frac{w_p \cdot \exp (\mathbf{z}_i \cdot \mathbf{z}_p / \tau)}
         {\sum_{a \in A(i)} w_a \cdot \exp (\mathbf{z}_i \cdot \mathbf{z}_a / \tau)}
         '''
@@ -253,9 +253,9 @@ class CoMICERecommend(BaseRecommender):
         final_probs = np.concatenate(all_probs, axis=0)
         return pd.DataFrame(final_probs, index=test_data.index, columns=self.unique_item)
 # %%
-class MaskCoMICE(CoMICERecommend):
+class MaskMICLRecommend(MICLRecommend):
     def __init__(self, item_name, sparse_features, dense_features, **kwargs):
-        self.model_name = 'MaskCoMICE'
+        self.model_name = 'MaskMICLRec'
         extra_params = {
             'mask_type': 'random',
             'mask_ratio': 0.5,
@@ -382,10 +382,10 @@ class MaskCoMICE(CoMICERecommend):
             self.model.load_state_dict(best_model_weights)
         self.is_trained = True
 # %%
-class StandardCoMICE(CoMICERecommend):
+class StandardMICLRecommend(MICLRecommend):
     def __init__(self, item_name, sparse_features, dense_features, **kwargs):
         super().__init__(item_name, sparse_features, dense_features, **kwargs)
-        self.model_name = 'StandardCoMICE'
+        self.model_name = 'StandardMICLRec'
     def supervised_contrastive_loss(self, projections_list, y, temperature=0.1):
         device = y.device
         num_views = len(projections_list)

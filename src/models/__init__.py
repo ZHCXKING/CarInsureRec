@@ -2,7 +2,7 @@
 from .MachineModel import LRRecommend, BNRecommend, KNNRecommend, NBRecommend
 from .TreeModel import RFRecommend, XGBRecommend, LGBMRecommend, CatBRecommend
 from .NetworkModel import *
-from .CoMICERecommend import CoMICERecommend, MaskCoMICE, StandardCoMICE
+from .MICLRecommend import MICLRecommend, MaskMICLRecommend, StandardMICLRecommend
 from .EnsembleModel import EnsembleRecommend, AugmentRecommend
 # %%
 __all__ = [
@@ -20,9 +20,9 @@ __all__ = [
     'XGBRecommend',
     'LGBMRecommend',
     'CatBRecommend',
-    'CoMICERecommend',
+    'MICLRecommend',
     'EnsembleRecommend',
     'AugmentRecommend',
-    'MaskCoMICE',
-    'StandardCoMICE'
+    'MaskMICLRecommend',
+    'StandardMICLRecommend'
 ]

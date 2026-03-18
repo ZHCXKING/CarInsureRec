@@ -54,13 +54,13 @@ def objective_NN(trial, model_name, train, valid, info, default_params):
     model = ModelClass(info['item_name'], info['sparse_features'], info['dense_features'], seed=42, k=3, **params)
     model.fit(train.copy(), valid.copy())
     return model.score_test(valid.copy(), methods=['logloss'])[0]
-# %% 阶段二：CoMICE Model Objective
-def objective_CoMICE(trial, model_name, train, valid, info, default_params):
+# %% 阶段二：MICLRec Model Objective
+def objective_MICLRec(trial, model_name, train, valid, info, default_params):
     params = default_params.copy()
     params['lambda_nce'] = trial.suggest_categorical('lambda_nce', [0.1, 0.5, 1.0, 2.0])
     params['temperature'] = trial.suggest_categorical('temperature', [0.07, 0.1, 0.2])
     params['proj_dim'] = trial.suggest_categorical('proj_dim', [32, 64, 128])
-    model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=42, k=3, backbone=model_name, **params)
+    model = MICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=42, k=3, backbone=model_name, **params)
     model.fit(train.copy(), valid.copy())
     return model.score_test(valid.copy(), methods=['logloss'])[0]
 # %% 阶段三：Tree Model Objective
@@ -87,10 +87,10 @@ def objective_Statistic(trial, model_name, train, valid, info, default_params):
 # %% 主控制流
 def run_optimization():
     amount = None
-    train_ratio =0.7
+    train_ratio = 0.7
     val_ratio = 0.1
     n_trials_NN = 20
-    n_trials_CoMICE = 10
+    n_trials_MICLRec = 10
     n_trials_TREE = 10
     n_trials_STATISTIC = 10
     for data_type in DATASETS:
@@ -108,11 +108,11 @@ def run_optimization():
             hidden_size = best_base_params.pop('hidden_size')
             num_layers = best_base_params.pop('num_layers')
             best_base_params['hidden_units'] = [hidden_size // (2 ** i) for i in range(num_layers)]
-            # --- Phase 2: CoMICE Model Tuning ---
+            # --- Phase 2: MICLRec Model Tuning ---
             # study_base = optuna.create_study(direction='minimize', sampler=optuna.samplers.TPESampler(seed=42))
             # study_base.optimize(
-            #     lambda trial: objective_CoMICE(trial, model_name, train, valid, info, best_base_params),
-            #     n_trials=n_trials_CoMICE
+            #     lambda trial: objective_MICLRec(trial, model_name, train, valid, info, best_base_params),
+            #     n_trials=n_trials_MICLRec
             # )
             # best_base_params.update(study_base.best_params)
             with open(param_file, 'w') as f:

@@ -1,3 +1,4 @@
+# %%
 import pandas as pd
 import json
 import itertools
@@ -10,7 +11,7 @@ datasets = ['AWM', 'HIP', 'VID']
 NN_MODELS = ['DCN', 'DCNv2', 'DeepFM', 'WideDeep', 'FiBiNET', 'AutoInt']
 TREE_MODELS = ['RF', 'XGB', 'LGBM', 'CatB']
 STATISTIC_MODELS = ['LR', 'NB']
-CoMICE_Backbone = 'DCN'
+MICL_Backbone = 'DCN'
 metrics = ['auc', 'logloss', 'hr_k', 'ndcg_k']
 mice_imputers = ['MICE_NB', 'MICE_RF']
 other_imputers = ['GAIN', 'MIWAE', 'KNN']
@@ -32,10 +33,10 @@ def test_Perf():
         train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
         with open(root / data_type / 'Seeds.json', 'r') as f:
             Seeds = json.load(f)
-        for model_name in NN_MODELS + TREE_MODELS + STATISTIC_MODELS + ['CoMICE']:
-            if model_name == 'CoMICE':
-                param_file = root / data_type / (CoMICE_Backbone + "_param.json")
-                Seeds['CoMICE'] = Seeds[CoMICE_Backbone]
+        for model_name in NN_MODELS + TREE_MODELS + STATISTIC_MODELS + ['MICL']:
+            if model_name == 'MICL':
+                param_file = root / data_type / (MICL_Backbone + "_param.json")
+                Seeds['MICL'] = Seeds[MICL_Backbone]
             else:
                 param_file = root / data_type / (model_name + "_param.json")
             with open(param_file, 'r') as f:
@@ -43,8 +44,8 @@ def test_Perf():
             for seed in Seeds[model_name]:
                 train_filled, valid_filled, test_filled = get_filled_data(train, valid, test, info['sparse_features'], seed=seed)
                 ModelClass = globals()[f"{model_name}Recommend"]
-                if model_name == 'CoMICE':
-                    base_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **params)
+                if model_name == 'MICL':
+                    base_model = MICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=MICL_Backbone, **params)
                 else:
                     base_model = ModelClass(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, **params)
                 # %%
@@ -76,7 +77,7 @@ def test_NaRatio():
         train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
         with open(root / data_type / 'Seeds.json', 'r') as f:
             Seeds = json.load(f)
-        all_imputers = mice_imputers + other_imputers + ['CoMICE']
+        all_imputers = mice_imputers + other_imputers + ['MICL']
         for model_name in ['DCN']:
             for ratio, imputer, seed in itertools.product(mask_ratios, all_imputers, Seeds[model_name]):
                 param_file = root / data_type / (model_name + "_param.json")
@@ -84,8 +85,8 @@ def test_NaRatio():
                     params = json.load(f)
                 train_mask = inject_missingness(train, info['sparse_features'], info['dense_features'], ratio, seed=seed)
                 ModelClass = globals()[f"{model_name}Recommend"]
-                if imputer == 'CoMICE':
-                    base_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **params)
+                if imputer == 'MICL':
+                    base_model = MICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **params)
                     base_model.fit(train_mask.copy(), valid.copy())
                     score = base_model.score_test(test.copy(), methods=metrics)
                 else:
@@ -126,9 +127,9 @@ def test_model():
                 augment_model = AugmentRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **params)
                 augment_model.fit(train.copy(), valid.copy())
                 a_score = augment_model.score_test(test.copy(), methods=metrics)
-                comice_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **params)
-                comice_model.fit(train.copy(), valid.copy())
-                c_score = comice_model.score_test(test.copy(), methods=metrics)
+                micl_model = MICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **params)
+                micl_model.fit(train.copy(), valid.copy())
+                c_score = micl_model.score_test(test.copy(), methods=metrics)
                 for i, metric in enumerate(metrics):
                     all_raw_data.append({
                         'Dataset': data_type,
@@ -137,7 +138,7 @@ def test_model():
                         'Metric': metric,
                         'BaseScore': b_score[i],
                         'AugmentScore': a_score[i],
-                        'CoMICEScore': c_score[i],
+                        'MICLRecScore': c_score[i],
                     })
     df_raw = pd.DataFrame(all_raw_data)
     with pd.ExcelWriter('experiment.xlsx', engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
@@ -156,13 +157,13 @@ def test_SSL():
             CE_Lose_param = {**params, 'lambda_ce': 1.0, 'lambda_nce': 0.0}
             CE_NCE_Lose_param = {**params, 'lambda_ce': 1.0, 'lambda_nce': 1.0}
             for seed in Seeds[model_name]:
-                CE_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **CE_Lose_param)
+                CE_model = MICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **CE_Lose_param)
                 CE_model.fit(train.copy(), valid.copy())
                 CE_score = CE_model.score_test(test.copy(), methods=metrics)
-                CE_NCE_model = StandardCoMICE(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **CE_NCE_Lose_param)
+                CE_NCE_model = StandardMICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **CE_NCE_Lose_param)
                 CE_NCE_model.fit(train.copy(), valid.copy())
                 CE_NCE_score = CE_NCE_model.score_test(test.copy(), methods=metrics)
-                CE_weight_NCE_model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **CE_NCE_Lose_param)
+                CE_weight_NCE_model = MICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=model_name, **CE_NCE_Lose_param)
                 CE_weight_NCE_model.fit(train.copy(), valid.copy())
                 CE_weight_NCE_score = CE_weight_NCE_model.score_test(test.copy(), methods=metrics)
                 for i, metric in enumerate(metrics):
@@ -172,7 +173,7 @@ def test_SSL():
                         'Seed': seed,
                         'Metric': metric,
                         'CE_score': CE_score[i],
-                        'CE_NCE_score' : CE_NCE_score[i],
+                        'CE_NCE_score': CE_NCE_score[i],
                         'CE_weight_NCE_score': CE_weight_NCE_score[i],
                     })
     df_raw = pd.DataFrame(all_raw_data)
@@ -185,11 +186,11 @@ def test_mask_ablation():
         train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
         with open(root / data_type / 'Seeds.json', 'r') as f:
             Seeds = json.load(f)
-        param_file = root / data_type / (CoMICE_Backbone + "_param.json")
+        param_file = root / data_type / (MICL_Backbone + "_param.json")
         with open(param_file, 'r') as f:
             params = json.load(f)
-        for seed in Seeds[CoMICE_Backbone]:
-            model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **params)
+        for seed in Seeds[MICL_Backbone]:
+            model = MICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=MICL_Backbone, **params)
             model.fit(train.copy(), valid.copy())
             score = model.score_test(test.copy(), methods=metrics)
             for i, metric in enumerate(metrics):
@@ -204,8 +205,8 @@ def test_mask_ablation():
             current_params = params.copy()
             current_params['mask_type'] = strategy
             current_params['num_views'] = 3
-            for seed in Seeds[CoMICE_Backbone]:
-                model = MaskCoMICE(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **current_params)
+            for seed in Seeds[MICL_Backbone]:
+                model = MaskMICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=MICL_Backbone, **current_params)
                 model.fit(train.copy(), valid.copy())
                 score = model.score_test(test.copy(), methods=metrics)
                 for i, metric in enumerate(metrics):
@@ -226,7 +227,7 @@ def test_sensitivity_heatmap():
         train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
         with open(root / data_type / 'Seeds.json', 'r') as f:
             Seeds = json.load(f)
-        param_file = root / data_type / (CoMICE_Backbone + "_param.json")
+        param_file = root / data_type / (MICL_Backbone + "_param.json")
         with open(param_file, 'r') as f:
             params = json.load(f)
         combinations = list(itertools.product(lambda_list, temp_list))
@@ -234,8 +235,8 @@ def test_sensitivity_heatmap():
             current_params = params.copy()
             current_params['lambda_nce'] = lam
             current_params['temperature'] = temp
-            for seed in Seeds[CoMICE_Backbone]:
-                model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **current_params)
+            for seed in Seeds[MICL_Backbone]:
+                model = MICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=MICL_Backbone, **current_params)
                 model.fit(train.copy(), valid.copy())
                 score = model.score_test(test.copy(), methods=metrics)
                 for i, metric in enumerate(metrics):
@@ -257,14 +258,14 @@ def test_views_tradeoff():
         train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
         with open(root / data_type / 'Seeds.json', 'r') as f:
             Seeds = json.load(f)
-        param_file = root / data_type / (CoMICE_Backbone + "_param.json")
+        param_file = root / data_type / (MICL_Backbone + "_param.json")
         with open(param_file, 'r') as f:
             params = json.load(f)
         for n_views in views_list:
             current_params = params.copy()
             current_params['num_views'] = n_views
-            for seed in Seeds[CoMICE_Backbone]:
-                model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **current_params)
+            for seed in Seeds[MICL_Backbone]:
+                model = MICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=MICL_Backbone, **current_params)
                 start_time = time.time()
                 model.fit(train.copy(), valid.copy())
                 end_time = time.time()
@@ -289,14 +290,14 @@ def test_batchsizes_tradeoff():
         train, valid, test, info = load(data_type, amount, train_ratio, val_ratio, is_dropna=False)
         with open(root / data_type / 'Seeds.json', 'r') as f:
             Seeds = json.load(f)
-        param_file = root / data_type / (CoMICE_Backbone + "_param.json")
+        param_file = root / data_type / (MICL_Backbone + "_param.json")
         with open(param_file, 'r') as f:
             params = json.load(f)
         for batchsize in batchsizes_list:
             current_params = params.copy()
             current_params['batch_size'] = batchsize
-            for seed in Seeds[CoMICE_Backbone]:
-                model = CoMICERecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=CoMICE_Backbone, **current_params)
+            for seed in Seeds[MICL_Backbone]:
+                model = MICLRecommend(info['item_name'], info['sparse_features'], info['dense_features'], seed=seed, k=3, backbone=MICL_Backbone, **current_params)
                 start_time = time.time()
                 model.fit(train.copy(), valid.copy())
                 end_time = time.time()
@@ -317,3 +318,5 @@ def test_batchsizes_tradeoff():
 # %%
 if __name__ == "__main__":
     test_sensitivity_heatmap()
+    test_views_tradeoff()
+    test_batchsizes_tradeoff()

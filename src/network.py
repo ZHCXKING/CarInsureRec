@@ -1,9 +1,11 @@
+# %%
 import os
 import random
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
+# %%
 def set_seed(seed: int):
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -13,6 +15,7 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+# %%
 class FactorizationMachine(nn.Module):
     def __init__(self):
         super().__init__()
@@ -21,6 +24,7 @@ class FactorizationMachine(nn.Module):
         square_of_sum = torch.sum(inputs ** 2, dim=1)
         ix = sum_of_square - square_of_sum
         return 0.5 * torch.sum(ix, dim=1, keepdim=True)
+# %%
 class CrossNetwork(nn.Module):
     def __init__(self, input_dim, num_layers):
         super().__init__()
@@ -34,6 +38,7 @@ class CrossNetwork(nn.Module):
             dot_prod = torch.sum(x_l * self.W[i], dim=1, keepdim=True)
             x_l = x_0 * dot_prod + self.b[i] + x_l
         return x_l
+# %%
 class DCNv2Layer(nn.Module):
     def __init__(self, input_dim, low_rank=64):
         super().__init__()
@@ -46,6 +51,7 @@ class DCNv2Layer(nn.Module):
         v_out = self.v_linear(x_l)
         u_out = self.u_linear(v_out)
         return x_0 * u_out + x_l
+# %%
 class AutoIntLayer(nn.Module):
     def __init__(self, embed_dim, num_heads=2, dropout=0.1):
         super().__init__()
@@ -57,6 +63,7 @@ class AutoIntLayer(nn.Module):
         res_out = self.W_res(x)
         out = self.relu(attn_out + res_out)
         return out
+# %%
 class SENETLayer(nn.Module):
     def __init__(self, num_fields, reduction_ratio=3):
         super().__init__()
@@ -71,6 +78,7 @@ class SENETLayer(nn.Module):
         z = torch.mean(x, dim=2)
         a = self.excitation(z)
         return x * a.unsqueeze(-1)
+# %%
 class BilinearInteraction(nn.Module):
     def __init__(self, embed_dim, num_fields, type='Field-All'):
         super().__init__()
@@ -93,6 +101,7 @@ class BilinearInteraction(nn.Module):
         triu_idx = torch.triu_indices(F, F, offset=1).to(inputs.device)
         inter = p[:, triu_idx[0], triu_idx[1], :]
         return inter.reshape(B, -1)
+# %%
 class DNN(nn.Module):
     def __init__(self, input_dim, hidden_units, dropout=0.0):
         super().__init__()
@@ -110,6 +119,7 @@ class DNN(nn.Module):
         self.output_dim = in_dim
     def forward(self, x):
         return self.net(x)
+# %%
 class WideDeepBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
@@ -135,6 +145,7 @@ class WideDeepBackbone(nn.Module):
         deep_in = torch.cat(all_embeds, dim=1)
         deep_out = self.dnn(deep_in)
         return deep_out
+# %%
 class DeepFMBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
@@ -163,6 +174,7 @@ class DeepFMBackbone(nn.Module):
         dnn_in = embed_stack.view(x.size(0), -1)
         dnn_out = self.dnn(dnn_in)
         return dnn_out
+# %%
 class DCNBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, cross_layers=3, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
@@ -187,6 +199,7 @@ class DCNBackbone(nn.Module):
         cross_out = self.cross_net(x_0)
         deep_out = self.dnn(x_0)
         return torch.cat([cross_out, deep_out], dim=1)
+# %%
 class DCNv2Backbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=16, cross_layers=3, hidden_units=[256, 128], dropout=0.1,
                  low_rank=64):
@@ -218,6 +231,7 @@ class DCNv2Backbone(nn.Module):
         cross_out = x_l
         deep_out = self.dnn(x_0)
         return torch.cat([cross_out, deep_out], dim=1)
+# %%
 class AutoIntBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=32, attention_layers=3, num_heads=2,
                  hidden_units=[256, 128], dropout=0.1):
@@ -247,6 +261,7 @@ class AutoIntBackbone(nn.Module):
         flat_input = att_input.reshape(x.size(0), -1)
         output = self.dnn(flat_input)
         return output
+# %%
 class FiBiNETBackbone(nn.Module):
     def __init__(self, sparse_dims, dense_count, feature_dim=32, hidden_units=[256, 128], dropout=0.1):
         super().__init__()
@@ -277,6 +292,7 @@ class FiBiNETBackbone(nn.Module):
         dnn_input = torch.cat([E_flat, V_flat, p, q], dim=1)
         output = self.dnn(dnn_input)
         return output
+# %%
 class RecDataset(Dataset):
     def __init__(self, X, y):
         self.X = X

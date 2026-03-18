@@ -4,7 +4,6 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy import stats
 import numpy as np
-import math
 # %%
 STYLE_PARAMS = {
     'color_perf': 'tab:blue',
@@ -16,54 +15,56 @@ STYLE_PARAMS = {
     'legend_pos': (0.5, 0.98),
     'rect_layout': (0, 0, 1, 0.94)
 }
-# 辅助函数：根据行列数计算合适的画布大小
 def get_figsize(nrows, ncols):
     return (5 * ncols + 1, 4.5 * nrows)
 # %%
 def draw_NaRatio():
     df = pd.read_excel("experiment.xlsx", sheet_name="NaRatio_Data")
-    names = {'MICE_NB': 'MICE(NB)', 'MICE_RF': 'MissForest'}
+    names = {'MICE_NB': 'MICE', 'MICE_RF': 'MissForest', 'MICL': 'MICLRec'}
     df = df[(df['imputer'] != 'MICE_RF')]
     df = df[df['Ratio'].isin([0.1, 0.3, 0.5, 0.7, 0.9])]
-    datasets = ["HIP"]
     df['imputer'] = df['imputer'].replace(names)
+    datasets = ["HIP"]
     metrics = ["hr_k", "ndcg_k"]
     metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
-    nrows, ncols = len(metrics), len(datasets)
+    nrows = len(datasets)
+    ncols = len(metrics)
     fig, axes = plt.subplots(
         nrows=nrows, ncols=ncols,
-        figsize=get_figsize(nrows, ncols),
-        squeeze=False
+        figsize=(ncols * 5, nrows * 4),
+        squeeze=False,
+        sharex=True
     )
-    for row, metric in enumerate(metrics):
-        for col, dataset in enumerate(datasets):
+    for row, dataset in enumerate(datasets):
+        for col, metric in enumerate(metrics):
             ax = axes[row, col]
             df_sub = df[(df["Metric"] == metric) & (df["Dataset"] == dataset)]
-
-            sns.lineplot(data=df_sub, x="Ratio", y="Score", hue="imputer",
-                         marker="o", errorbar='se', linewidth=2, ax=ax)
-            ax.set_title("")
-            if col == 0:
-                ax.set_ylabel(metric_names[metric], fontsize=STYLE_PARAMS['fontsize_label'], fontweight='bold')
+            sns.lineplot(
+                data=df_sub, x="Ratio", y="Score", hue="imputer",
+                marker="o", errorbar='se', linewidth=2, ax=ax
+            )
+            ax.set_ylabel(metric_names[metric], fontsize=12, fontweight='bold')
+            if row == nrows - 1:
+                ax.set_xlabel("Inject Missing Ratio", fontsize=12)
             else:
-                ax.set_ylabel("")
-            ax.set_xlabel("Inject Missing Ratio")
-            if ax.get_legend(): ax.get_legend().remove()
+                ax.set_xlabel("")
+            if ax.get_legend():
+                ax.get_legend().remove()
+            ax.grid(False)
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    n_cols_legend = math.ceil(len(labels) / 2)
     fig.legend(handles, labels,
-               loc="upper center",
-               ncol=n_cols_legend,
+               loc="lower center",
+               ncol=len(labels),
                frameon=False,
                fontsize=13,
-               bbox_to_anchor=(0.5, 1.02))
-    plt.tight_layout(rect=(0, 0, 1, 0.96))
+               bbox_to_anchor=(0.5, 1.0))
+    plt.tight_layout()
     plt.savefig('Inject_Missing_Ratio.pdf', bbox_inches='tight')
     plt.show()
 # %%
 def draw_heatmap():
     df = pd.read_excel("experiment.xlsx", sheet_name="sensitivity_heatmap")
-    datasets = ['AWM', 'VID']
+    datasets = ['AWM', 'HIP', 'VID']
     metrics = ['hr_k']
     metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
     nrows, ncols = len(metrics), len(datasets)
@@ -81,8 +82,8 @@ def draw_heatmap():
             sns.heatmap(df_pivot, annot=True, fmt=".4f", cmap="YlGnBu", ax=ax)
             if row == 0:
                 ax.set_title(f'Dataset: {dataset}', fontsize=STYLE_PARAMS['fontsize_title'], pad=10)
-            ax.set_xlabel(r'$\lambda_{nce}$')
-            label_text = f"Temperature"
+            ax.set_xlabel(r'$\lambda$ for $\mathcal{L}_{\mathrm{UA}}$')
+            label_text = r"Temperature $\tau$"
             ax.set_ylabel(label_text, fontsize=STYLE_PARAMS['fontsize_label'])
 
     plt.tight_layout(rect=STYLE_PARAMS['rect_layout'])
@@ -91,7 +92,7 @@ def draw_heatmap():
 # %%
 def draw_views_tradeoff():
     df = pd.read_excel("experiment.xlsx", sheet_name="views_tradeoff")
-    datasets = ["AWM", "VID"]
+    datasets = ["AWM", "HIP", "VID"]
     metrics = ["hr_k", "ndcg_k"]
     metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
     nrows, ncols = len(metrics), len(datasets)
@@ -123,7 +124,7 @@ def draw_views_tradeoff():
 # %%
 def draw_batchsize_tradeoff():
     df = pd.read_excel("experiment.xlsx", sheet_name="batchsizes_tradeoff")
-    datasets = ["AWM", "VID"]
+    datasets = ["AWM", "HIP", "VID"]
     metrics = ["hr_k", "ndcg_k"]
     metric_names = {"hr_k": "HR", "ndcg_k": "NDCG"}
     nrows, ncols = len(metrics), len(datasets)
@@ -155,7 +156,7 @@ def draw_batchsize_tradeoff():
     plt.savefig('BatchSize_Tradeoff.pdf', bbox_inches='tight')
     plt.show()
 # %%
-def calculate_significance(file_path='experiment.xlsx', target_model='CoMICE', sheet_name='Perf_Data'):
+def calculate_significance(file_path='experiment.xlsx', target_model='MICL', sheet_name='Perf_Data'):
     df = pd.read_excel(file_path, sheet_name=sheet_name)
     datasets = df['Dataset'].unique()
     metrics = df['Metric'].unique()
@@ -197,4 +198,4 @@ def calculate_significance(file_path='experiment.xlsx', target_model='CoMICE', s
     df_sig.to_excel('calculate_significance.xlsx')
 # %%
 if __name__ == '__main__':
-    draw_heatmap()
+    calculate_significance()
