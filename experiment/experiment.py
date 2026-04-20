@@ -63,7 +63,6 @@ def test_Perf():
                     all_raw_data.append({
                         'Dataset': data_type,
                         'Model': model_name,
-                        'Seed': seed,
                         'Metric': metric,
                         'Score': b_score[i]
                     })
@@ -100,7 +99,6 @@ def test_NaRatio():
                         'model': model_name,
                         'Ratio': ratio,
                         'imputer': imputer,
-                        'Seed': seed,
                         'Metric': metric,
                         'Score': score[i]
                     })
@@ -134,7 +132,6 @@ def test_model():
                     all_raw_data.append({
                         'Dataset': data_type,
                         'model': model_name,
-                        'Seed': seed,
                         'Metric': metric,
                         'BaseScore': b_score[i],
                         'AugmentScore': a_score[i],
@@ -170,7 +167,6 @@ def test_SSL():
                     all_raw_data.append({
                         'Dataset': data_type,
                         'Backbone': model_name,
-                        'Seed': seed,
                         'Metric': metric,
                         'CE_score': CE_score[i],
                         'CE_NCE_score': CE_NCE_score[i],
@@ -197,7 +193,6 @@ def test_mask_ablation():
                 all_raw_data.append({
                     'Dataset': data_type,
                     'View_Type': 'MICE_Multiple_Views',
-                    'Seed': seed,
                     'Metric': metric,
                     'Score': score[i]
                 })
@@ -213,7 +208,6 @@ def test_mask_ablation():
                     all_raw_data.append({
                         'Dataset': data_type,
                         'View_Type': f'Mask_{strategy}',
-                        'Seed': seed,
                         'Metric': metric,
                         'Score': score[i]
                     })
@@ -244,7 +238,6 @@ def test_sensitivity_heatmap():
                         'Dataset': data_type,
                         'lambda_nce': lam,
                         'temperature': temp,
-                        'Seed': seed,
                         'Metric': metric,
                         'Score': score[i]
                     })
@@ -275,7 +268,6 @@ def test_views_tradeoff():
                     all_raw_data.append({
                         'Dataset': data_type,
                         'num_views': n_views,
-                        'Seed': seed,
                         'Time_Sec': training_time,
                         'Metric': metric,
                         'Score': score[i]
@@ -307,7 +299,6 @@ def test_batchsizes_tradeoff():
                     all_raw_data.append({
                         'Dataset': data_type,
                         'batchsize': batchsize,
-                        'Seed': seed,
                         'Time_Sec': training_time,
                         'Metric': metric,
                         'Score': score[i]
