@@ -1,0 +1,47 @@
+{
+    "tables": {
+        "table": {
+            "columns": {
+                "Expo": {
+                    "sdtype": "numerical"
+                },
+                "SnrU": {
+                    "sdtype": "numerical",
+                    "computer_representation": "Int64"
+                },
+                "SnrP": {
+                    "sdtype": "numerical",
+                    "computer_representation": "Int64"
+                },
+                "Gndr": {
+                    "sdtype": "categorical"
+                },
+                "Age": {
+                    "sdtype": "numerical",
+                    "computer_representation": "Int64"
+                },
+                "Prem": {
+                    "sdtype": "numerical"
+                },
+                "Clms": {
+                    "sdtype": "numerical"
+                },
+                "MedS": {
+                    "sdtype": "numerical",
+                    "computer_representation": "Int64"
+                },
+                "Habt": {
+                    "sdtype": "categorical"
+                },
+                "Clim": {
+                    "sdtype": "categorical"
+                },
+                "product_item": {
+                    "sdtype": "categorical"
+                }
+            }
+        }
+    },
+    "relationships": [],
+    "METADATA_SPEC_VERSION": "V1"
+}

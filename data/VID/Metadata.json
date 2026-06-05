@@ -1,0 +1,45 @@
+{
+    "tables": {
+        "table": {
+            "columns": {
+                "SEX": {
+                    "sdtype": "categorical"
+                },
+                "INSR_TYPE": {
+                    "sdtype": "categorical"
+                },
+                "INSURED_VALUE": {
+                    "sdtype": "numerical"
+                },
+                "PREMIUM": {
+                    "sdtype": "numerical"
+                },
+                "SEATS_NUM": {
+                    "sdtype": "numerical",
+                    "computer_representation": "Int64"
+                },
+                "CARRYING_CAPACITY": {
+                    "sdtype": "numerical"
+                },
+                "CCM_TON": {
+                    "sdtype": "numerical"
+                },
+                "MAKE": {
+                    "sdtype": "categorical"
+                },
+                "CLAIM_PAID": {
+                    "sdtype": "numerical"
+                },
+                "Car.year": {
+                    "sdtype": "numerical",
+                    "computer_representation": "Int64"
+                },
+                "product_item": {
+                    "sdtype": "categorical"
+                }
+            }
+        }
+    },
+    "relationships": [],
+    "METADATA_SPEC_VERSION": "V1"
+}
