@@ -1,12 +1,13 @@
 .idea
+.venv
+AGENTS.md
+__pycache__/
 /data/AWM/*
 !/data/AWM/data_preproce.py
 !/data/AWM/Metadata.json
-
 /data/HIP/*
 !/data/HIP/data_preproce.py
 !/data/HIP/Metadata.json
-
 /data/VID/*
 !/data/VID/data_preproce.py
 !/data/VID/Metadata.json
